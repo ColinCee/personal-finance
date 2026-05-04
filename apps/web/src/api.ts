@@ -4,7 +4,7 @@ const transactionSchema = z.object({
   id: z.string(),
   postedOn: z.string(),
   description: z.string(),
-  amount: z.number(),
+  amountMinorUnits: z.number().int(),
   currency: z.string(),
   kind: z.string(),
   source: z.string(),

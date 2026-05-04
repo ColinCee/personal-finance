@@ -1,23 +1,22 @@
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
 
-import {
-  exampleTransactions,
-  toReviewTransaction,
-} from "@personal-finance/core";
+import { loadServerConfig } from "./config/env";
+import { createDatabaseConnection } from "./db/client";
+import { runMigrations } from "./db/migrate";
+import { createApp } from "./app";
 
-const app = new Hono();
+const config = loadServerConfig();
+const connection = createDatabaseConnection(config.databasePath);
 
-app.get("/api/health", (context) => context.json({ ok: true }));
-app.get("/api/transactions", (context) =>
-  context.json(exampleTransactions.map(toReviewTransaction)),
-);
+runMigrations(connection.db);
+
+const app = createApp(connection.db);
 
 serve(
   {
     fetch: app.fetch,
-    hostname: "127.0.0.1",
-    port: 8787,
+    hostname: config.hostname,
+    port: config.port,
   },
   (info) => {
     console.log(

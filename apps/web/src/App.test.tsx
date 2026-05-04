@@ -13,7 +13,7 @@ beforeEach(() => {
           id: "txn_fake_1",
           postedOn: "2026-05-02",
           description: "Groceries",
-          amount: -82.4,
+          amountMinorUnits: -8240,
           currency: "GBP",
           kind: "spend",
           source: "fake-amex",

@@ -80,9 +80,9 @@ function RootLayout() {
 
 function Dashboard() {
   const transactions = useTransactions();
-  const personalSpend = transactions.data
+  const personalSpendMinorUnits = transactions.data
     ?.filter((transaction) => transaction.affectsPersonalSpend)
-    .reduce((total, transaction) => total + transaction.amount, 0);
+    .reduce((total, transaction) => total + transaction.amountMinorUnits, 0);
 
   return (
     <section className="grid">
@@ -92,8 +92,8 @@ function Dashboard() {
       />
       <SummaryCard
         label="Net personal spend"
-        value={formatCurrency(personalSpend ?? 0)}
-        hint="Fake example data only"
+        value={formatCurrencyFromMinorUnits(personalSpendMinorUnits ?? 0)}
+        hint="Fake fixture data only"
       />
       <SummaryCard
         label="Current focus"
@@ -113,9 +113,9 @@ function ReviewInbox() {
       column.accessor("postedOn", { header: "Date" }),
       column.accessor("description", { header: "Description" }),
       column.accessor("kind", { header: "Detected kind" }),
-      column.accessor("amount", {
+      column.accessor("amountMinorUnits", {
         header: "Amount",
-        cell: (info) => formatCurrency(info.getValue()),
+        cell: (info) => formatCurrencyFromMinorUnits(info.getValue()),
       }),
       column.accessor("reviewStatus", { header: "Review" }),
     ];
@@ -190,9 +190,9 @@ function useTransactions() {
   });
 }
 
-function formatCurrency(amount: number): string {
+function formatCurrencyFromMinorUnits(amountMinorUnits: number): string {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: "GBP",
-  }).format(amount);
+  }).format(amountMinorUnits / 100);
 }

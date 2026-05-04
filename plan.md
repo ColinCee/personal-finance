@@ -224,34 +224,48 @@ imports auditable and lets rules improve over time without losing the original s
 
 ## Implementation plan
 
-### 1. Stabilize the scaffold
+### Completed baseline
 
-- Add `.mise.toml` for Node and pnpm version pinning.
-- Add repo-level agent instructions so future agent runs preserve privacy, architecture, and
-  verification expectations.
-- Add Biome linting/formatting, verification, and test commands that cover all workspace packages.
-- Use installed skills deliberately:
-  - `frontend-design` for UI creation or major UI improvement.
-  - `vercel-react-best-practices` for React rendering, data-fetching, and performance work.
-  - `vercel-composition-patterns` for reusable component APIs.
-  - `agent-browser` for browser QA, screenshots, and smoke tests.
-  - `shadcn` for shadcn/ui components, theming, and composition rules.
-- Add a basic CI workflow once the repo is pushed to GitHub.
-- Add browser-level testing once import/review flows are stable enough to test end-to-end.
-- Add a Dockerfile and compose file only after the app has persistence.
+- pnpm workspace with `apps/web`, `apps/server`, and `packages/core`.
+- mise-pinned Node/pnpm, Biome, TypeScript, Vitest, and root verification scripts.
+- Tailwind CSS v4 and shadcn/ui initialized for the web app.
+- Agent instructions and installed skill lockfiles.
+- `fixtures/` for safe fake data and `storage/` for ignored private local files.
+- Placeholder Hono API, React review workspace, and pure core transaction rules.
 
-Implementation order should stay simple: first make local tooling reproducible, then confirm the
-workspace scripts pass, then add the persistence layer. Avoid adding mise tasks until there are
-non-JavaScript tools or repeated multi-command workflows that package scripts do not cover well.
+Validation rule for every stage: `pnpm verify` must pass, but that is only the baseline. Each stage
+also needs behavior-specific tests or smoke checks that prove the app does the intended finance task
+with fake data and does not touch real/private storage unexpectedly.
 
-### 2. Add local persistence
+### Stage 1: Domain and persistence foundation
 
-- Add SQLite to the server.
-- Use Drizzle ORM with Drizzle Kit for typed schema/query management and generated SQL migrations.
-- Create initial migrations for imported files, raw transactions, normalized transactions, and review
+Goal: get durable local storage working without losing the auditability of imported rows.
+
+- Split `packages/core` into focused modules for money amounts, transaction kinds, ledger entries,
+  review models, import sources, and spending rules.
+- Store money as integer minor units, for example pence, not floating-point decimals.
+- Add Drizzle ORM, Drizzle Kit, `better-sqlite3`, and `@types/better-sqlite3` to the server.
+- Define the first schema in `apps/server/src/db/schema.ts`:
+  - `accounts`
+  - `imported_files`
+  - `raw_transactions`
+  - `ledger_entries`
+  - `review_items`
+- Generate and commit the initial Drizzle migration under `apps/server/drizzle/`.
+- Add server config for the default database path, `storage/personal-finance.sqlite`.
+- Add a DB client factory, migration runner, and temp database helpers for Vitest.
+- Add repository tests that prove migrations run and rows can be inserted/read from temp SQLite files.
+
+Validation:
+
+- Unit tests prove money is represented in integer minor units and transaction classification still
+  handles spend, reimbursement, transfer, credit-card payment, income, and split settlement.
+- Migration tests run against a temporary SQLite file, not `storage/personal-finance.sqlite`.
+- Repository tests insert/read accounts, imported files, raw transactions, ledger entries, and review
   items.
-- Store the database under ignored local storage, for example `storage/personal-finance.sqlite`.
-- Add database tests using temporary files.
+- A smoke command or test runs migrations against a fresh temp database and verifies expected tables
+  exist.
+- `storage/` remains ignored and no generated local database is staged for commit.
 
 Drizzle is the better fit for this greenfield app because the schema will evolve quickly and should
 remain the source of truth for both TypeScript types and migrations. Kysely remains a strong query
@@ -262,27 +276,54 @@ Use `better-sqlite3` as the initial SQLite driver. It is mature, fast for local 
 and simpler than libSQL for a local/self-hosted app. libSQL remains a good future option if the app
 needs Turso/remote SQLite, native encryption-at-rest, or libSQL-specific ALTER/extension support.
 
-### 3. Build import pipeline
+### Stage 2: Import pipeline
+
+Goal: import fake fixture CSVs into raw rows and derived ledger entries.
 
 - Start with `fixtures/transactions.csv`.
 - Add parser validation with Zod.
-- Store raw imported rows before normalization.
-- Add source-specific import adapters:
-  - fake/example CSV
-  - Monzo CSV
-  - Amex CSV
-  - joint-account CSV once the export format is known
-- Detect duplicate imports.
+- Store every source row in `raw_transactions` before deriving ledger entries.
+- Add a fake fixture adapter first, then Monzo and Amex adapters.
+- Detect duplicate imports using file/source metadata and stable row fingerprints.
+- Keep import logic in `packages/core` when pure; keep file reading and persistence in
+  `apps/server`.
 
-### 4. Build review inbox
+Validation:
 
-- Show imported transactions that need confirmation.
-- Allow users to confirm detected transaction kind.
-- Allow users to recategorize transactions.
-- Allow users to mark a transaction as transfer, Amex payment, reimbursement, or split settlement.
-- Keep an audit trail of user decisions.
+- Parser unit tests cover valid fixture rows, malformed rows, missing required fields, invalid dates,
+  and invalid amounts.
+- Import integration tests load `fixtures/transactions.csv` into a temporary database and assert:
+  - exactly one `imported_files` row is created;
+  - all source rows are preserved in `raw_transactions`;
+  - derived ledger entries use integer minor-unit amounts;
+  - expected review items are created for uncertain transaction kinds.
+- Duplicate import tests prove importing the same fixture twice does not duplicate raw or ledger rows.
+- API smoke test confirms imported transactions can be read back from the server layer.
 
-### 5. Add rules
+### Stage 3: Review workflow
+
+Goal: make uncertain financial interpretation explicit and correctable.
+
+- Surface review items for entries that are not confidently classified.
+- Allow confirming detected kind, changing category, and marking transfers, credit-card payments,
+  reimbursements, or split settlements.
+- Store review decisions as append-only decisions/adjustments rather than mutating raw imports.
+- Add a thin service layer so route handlers do not contain finance or persistence logic.
+- Split the current web `App.tsx` into `app/`, `api/`, and `features/` once the review API shape is
+  stable.
+
+Validation:
+
+- Service tests prove review decisions are append-only and raw transactions remain unchanged.
+- API tests cover listing review items, confirming an item, changing kind/category, and invalid
+  decision payloads.
+- Web tests cover loading, error, empty, and populated review inbox states.
+- Browser smoke test with `agent-browser` confirms the review table renders fake imported data and a
+  decision can be submitted through the UI once the route exists.
+
+### Stage 4: Rules and matching
+
+Goal: reduce manual review over time while keeping uncertain matches visible.
 
 - Add merchant/category rules.
 - Add transfer matching rules.
@@ -291,7 +332,20 @@ needs Turso/remote SQLite, native encryption-at-rest, or libSQL-specific ALTER/e
 - Add joint split defaults.
 - Apply rules during import while still surfacing uncertain matches for review.
 
-### 6. Add reports
+Validation:
+
+- Rule unit tests use small named fixtures for each tricky case: Amex repayment, internal transfer,
+  reimbursement, split settlement, salary/income, and ordinary spend.
+- Regression tests prove credit-card repayments do not count as new spending and reimbursements reduce
+  net personal cost.
+- Import tests show confident matches skip unnecessary review while uncertain matches still create
+  review items.
+- Rule changes include before/after examples in test names or fixtures so future failures explain the
+  financial behavior that changed.
+
+### Stage 5: Reporting and budgets
+
+Goal: turn reviewed transactions into useful monthly views.
 
 - Monthly cashflow.
 - Category spend.
@@ -301,20 +355,40 @@ needs Turso/remote SQLite, native encryption-at-rest, or libSQL-specific ALTER/e
 - Credit-card liability and settlement status.
 - Review inbox health.
 
-### 7. Prepare for public use
+Validation:
 
+- Report unit tests use deterministic fake monthly ledgers and assert exact totals for cashflow,
+  category spend, net personal cost, joint spend, reimbursement handling, and credit-card settlement.
+- Budget tests cover overspend, underspend, zero-activity categories, and month boundaries.
+- API tests verify report endpoints return stable JSON shapes validated with Zod.
+- UI tests verify summary cards/tables render the report values from fake API data.
+
+### Stage 6: Product hardening
+
+Goal: make the app safe and pleasant for real local use.
+
+- Add a basic CI workflow once the repo is pushed to GitHub.
+- Add browser-level tests once import/review flows are stable enough to test end-to-end.
 - Keep fixtures fake and useful.
 - Document privacy expectations clearly.
 - Add a simple local setup guide.
 - Add screenshots or a fake-data demo path.
 - Add Docker self-hosting once persistence is stable.
 
+Validation:
+
+- CI runs the same verification path used locally.
+- Browser smoke tests cover app load, import fixture, review inbox, and monthly summary once those
+  flows exist.
+- Privacy checks document that real exports and generated databases belong in `storage/` and are
+  ignored by git.
+- Docker/self-hosting checks prove a fresh checkout can start the server and web app against an empty
+  local SQLite database.
+
 ## Open decisions
 
-- React UI library: plain CSS first, Tailwind, or shadcn/ui.
-- Database query layer: Drizzle vs Kysely.
 - Whether budgets should be envelope-based, category-based, or both.
-- Whether transaction amounts should use integer minor units rather than decimal numbers.
-- Whether review decisions should mutate normalized entries or create append-only adjustments.
-- Whether the app should support multiple users/accounts in the schema from the start, even if the
+- Whether the app should support multiple users/profiles in the schema from the start, even if the
   UI is single-user.
+- Exact Monzo, Amex, and joint-account CSV shapes once real export headers are available.
+- Whether future review decisions need full append-only event sourcing or a simpler audit table.
