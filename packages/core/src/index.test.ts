@@ -9,7 +9,9 @@ import {
   type EntryKind,
   exampleTransactions,
   majorUnitsToMinorUnits,
+  parseAmexTransactionsCsv,
   parseFixtureTransactionsCsv,
+  parseMonzoTransactionsCsv,
   toReviewTransaction,
 } from ".";
 
@@ -105,5 +107,81 @@ describe("fixture imports", () => {
     );
 
     expect(transactions[0]?.description).toBe("Groceries, household");
+  });
+});
+
+describe("bank imports", () => {
+  test("parses Monzo CSV rows with pence amounts", () => {
+    const transactions = parseMonzoTransactionsCsv(
+      [
+        "ID,Date,Amount,Name,Type,Category,Local Currency",
+        "tx_1,2026-05-02T14:35:01Z,-8240,Groceries,debit,shopping,GBP",
+        "tx_2,2026-05-31T09:00:00Z,300000,Salary,credit,income,GBP",
+      ].join("\n"),
+    );
+
+    expect(transactions).toEqual([
+      {
+        id: "tx_1",
+        postedOn: "2026-05-02",
+        description: "Groceries",
+        amountMinorUnits: -8240,
+        currency: "GBP",
+        kind: "spend",
+        source: "monzo",
+      },
+      {
+        id: "tx_2",
+        postedOn: "2026-05-31",
+        description: "Salary",
+        amountMinorUnits: 300000,
+        currency: "GBP",
+        kind: "income",
+        source: "monzo",
+      },
+    ]);
+  });
+
+  test("parses Amex CSV rows with decimal amounts", () => {
+    const transactions = parseAmexTransactionsCsv(
+      [
+        "Date,Description,Amount,Currency,Reference",
+        "2026-05-02,Groceries,-82.40,GBP,amex_1",
+      ].join("\n"),
+    );
+
+    expect(transactions).toEqual([
+      {
+        id: "amex_1",
+        postedOn: "2026-05-02",
+        description: "Groceries",
+        amountMinorUnits: -8240,
+        currency: "GBP",
+        kind: "spend",
+        source: "amex",
+      },
+    ]);
+  });
+
+  test("rejects unsupported bank CSV currencies", () => {
+    expect(() =>
+      parseAmexTransactionsCsv(
+        [
+          "Date,Description,Amount,Currency,Reference",
+          "2026-05-02,Groceries,-82.40,USD,amex_1",
+        ].join("\n"),
+      ),
+    ).toThrow("Unsupported Amex currency");
+  });
+
+  test("rejects bank CSV rows with missing required headers", () => {
+    expect(() =>
+      parseMonzoTransactionsCsv(
+        [
+          "ID,Date,Amount,Type,Category,Local Currency",
+          "tx_1,2026-05-02T14:35:01Z,-8240,debit,shopping,GBP",
+        ].join("\n"),
+      ),
+    ).toThrow("Missing required CSV header: Name or Description");
   });
 });
