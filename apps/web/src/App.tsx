@@ -1,27 +1,28 @@
 import {
   QueryClient,
   QueryClientProvider,
+  useMutation,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Link,
   Outlet,
   RouterProvider,
   createRootRoute,
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
+import { useState } from "react";
+
+import type { EntryKind } from "@personal-finance/core";
+import { Button } from "@/components/ui/button";
 import {
-  createColumnHelper,
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
-import { useMemo } from "react";
-
-import { fetchTransactions, type Transaction } from "./api";
+  fetchTransactions,
+  submitReviewDecision,
+  type Transaction,
+} from "./api";
 import "./styles.css";
-
-const queryClient = new QueryClient();
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -50,6 +51,17 @@ declare module "@tanstack/react-router" {
 }
 
 export function App() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            retry: false,
+          },
+        },
+      }),
+  );
+
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
@@ -69,8 +81,8 @@ function RootLayout() {
           joint-account settlements.
         </p>
         <nav>
-          <a href="/">Dashboard</a>
-          <a href="/review">Review inbox</a>
+          <Link to="/">Dashboard</Link>
+          <Link to="/review">Review inbox</Link>
         </nav>
       </header>
       <Outlet />
@@ -80,6 +92,10 @@ function RootLayout() {
 
 function Dashboard() {
   const transactions = useTransactions();
+  const reviewItemCount =
+    transactions.data?.filter(
+      (transaction) => transaction.reviewStatus === "needs_review",
+    ).length ?? 0;
   const personalSpendMinorUnits = transactions.data
     ?.filter((transaction) => transaction.affectsPersonalSpend)
     .reduce((total, transaction) => total + transaction.amountMinorUnits, 0);
@@ -88,7 +104,8 @@ function Dashboard() {
     <section className="grid">
       <SummaryCard
         label="Review inbox"
-        value={`${transactions.data?.length ?? 0} items`}
+        value={`${reviewItemCount} open`}
+        hint="Only uncertain rows need action"
       />
       <SummaryCard
         label="Net personal spend"
@@ -97,8 +114,8 @@ function Dashboard() {
       />
       <SummaryCard
         label="Current focus"
-        value="Model first"
-        hint="UI stays thin over rules"
+        value="Review loop"
+        hint="Confirm the model before reports"
       />
     </section>
   );
@@ -106,26 +123,16 @@ function Dashboard() {
 
 function ReviewInbox() {
   const transactions = useTransactions();
-  const columns = useMemo(() => {
-    const column = createColumnHelper<Transaction>();
-
-    return [
-      column.accessor("postedOn", { header: "Date" }),
-      column.accessor("description", { header: "Description" }),
-      column.accessor("kind", { header: "Detected kind" }),
-      column.accessor("amountMinorUnits", {
-        header: "Amount",
-        cell: (info) => formatCurrencyFromMinorUnits(info.getValue()),
-      }),
-      column.accessor("reviewStatus", { header: "Review" }),
-    ];
-  }, []);
-
-  const table = useReactTable({
-    data: transactions.data ?? [],
-    columns,
-    getCoreRowModel: getCoreRowModel(),
+  const queryClient = useQueryClient();
+  const reviewDecision = useMutation({
+    mutationFn: submitReviewDecision,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["transactions"] }),
   });
+  const rows = transactions.data ?? [];
+  const pendingReviewItemId = reviewDecision.isPending
+    ? reviewDecision.variables.reviewItemId
+    : null;
 
   if (transactions.isLoading) {
     return <p className="panel">Loading transactions...</p>;
@@ -137,39 +144,135 @@ function ReviewInbox() {
 
   return (
     <section className="panel">
-      <h2>Review inbox</h2>
-      <p>
-        This is where imports will surface suspected transfers, reimbursements,
-        Amex payments, and split settlements before they affect reports.
-      </p>
-      <table>
-        <thead>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <th key={header.id}>
-                  {flexRender(
-                    header.column.columnDef.header,
-                    header.getContext(),
-                  )}
-                </th>
-              ))}
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Review queue</p>
+          <h2>Review inbox</h2>
+          <p>
+            The app flags repayments, transfers, reimbursements, and shared
+            settlements before they flow into reports.
+          </p>
+        </div>
+        <div className="queue-meter">
+          <strong>{rows.length}</strong>
+          <span>rows</span>
+        </div>
+      </div>
+
+      {reviewDecision.isError ? (
+        <p className="decision-error" role="alert">
+          {reviewDecision.error.message}
+        </p>
+      ) : null}
+
+      {rows.length === 0 ? (
+        <div className="empty-state">
+          <strong>Nothing needs review.</strong>
+          <span>Import fake fixture data to populate this queue.</span>
+        </div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Description</th>
+              <th>Detected kind</th>
+              <th>Amount</th>
+              <th>Impact</th>
+              <th>Decision</th>
             </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
-              {row.getVisibleCells().map((cell) => (
-                <td key={cell.id}>
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </thead>
+          <tbody>
+            {rows.map((transaction) => (
+              <tr key={transaction.id}>
+                <td>
+                  <time dateTime={transaction.postedOn}>
+                    {transaction.postedOn}
+                  </time>
                 </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                <td>
+                  <div className="transaction-copy">
+                    <strong>{transaction.description}</strong>
+                    <span>{transaction.source}</span>
+                  </div>
+                </td>
+                <td>
+                  <span className="kind-pill">
+                    {formatEntryKind(transaction.kind)}
+                  </span>
+                </td>
+                <td className="amount-cell">
+                  {formatCurrencyFromMinorUnits(transaction.amountMinorUnits)}
+                </td>
+                <td>{impactLabel(transaction)}</td>
+                <td>
+                  <ReviewActions
+                    pending={pendingReviewItemId === transaction.reviewItemId}
+                    transaction={transaction}
+                    onDecision={(decidedKind) => {
+                      if (!transaction.reviewItemId) {
+                        throw new Error(
+                          `Transaction has no review item: ${transaction.id}`,
+                        );
+                      }
+
+                      reviewDecision.mutate({
+                        reviewItemId: transaction.reviewItemId,
+                        decidedKind,
+                        note:
+                          decidedKind === transaction.kind
+                            ? undefined
+                            : `Changed from ${formatEntryKind(transaction.kind)} in the review inbox.`,
+                      });
+                    }}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </section>
+  );
+}
+
+function ReviewActions(props: {
+  pending: boolean;
+  transaction: Transaction;
+  onDecision: (decidedKind: EntryKind) => void;
+}) {
+  if (
+    props.transaction.reviewStatus === "confirmed" ||
+    !props.transaction.reviewItemId
+  ) {
+    return <span className="resolved-label">Resolved</span>;
+  }
+
+  return (
+    <div className="decision-actions">
+      <Button
+        disabled={props.pending}
+        onClick={() => props.onDecision(props.transaction.kind)}
+        size="sm"
+      >
+        {props.pending
+          ? "Saving..."
+          : `Confirm ${formatEntryKind(props.transaction.kind)}`}
+      </Button>
+      {decisionKindOptions
+        .filter((option) => option.kind !== props.transaction.kind)
+        .map((option) => (
+          <Button
+            disabled={props.pending}
+            key={option.kind}
+            onClick={() => props.onDecision(option.kind)}
+            size="sm"
+            variant="outline"
+          >
+            Mark {option.label}
+          </Button>
+        ))}
+    </div>
   );
 }
 
@@ -195,4 +298,31 @@ function formatCurrencyFromMinorUnits(amountMinorUnits: number): string {
     style: "currency",
     currency: "GBP",
   }).format(amountMinorUnits / 100);
+}
+
+const decisionKindOptions: { kind: EntryKind; label: string }[] = [
+  { kind: "spend", label: "spend" },
+  { kind: "transfer", label: "transfer" },
+  { kind: "credit_card_payment", label: "card payment" },
+  { kind: "reimbursement", label: "reimbursement" },
+  { kind: "split_settlement", label: "split" },
+];
+
+const entryKindLabels: Record<EntryKind, string> = {
+  income: "income",
+  spend: "spend",
+  transfer: "transfer",
+  credit_card_payment: "credit-card payment",
+  reimbursement: "reimbursement",
+  split_settlement: "split settlement",
+};
+
+function formatEntryKind(kind: EntryKind): string {
+  return entryKindLabels[kind];
+}
+
+function impactLabel(transaction: Transaction): string {
+  return transaction.affectsPersonalSpend
+    ? "Counts as spend"
+    : "Excluded from spend";
 }

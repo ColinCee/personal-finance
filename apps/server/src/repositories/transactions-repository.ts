@@ -37,6 +37,7 @@ export function createTransactionsRepository(
           currency: ledgerEntries.currency,
           kind: ledgerEntries.kind,
           source: ledgerEntries.source,
+          reviewItemId: reviewItems.id,
           reviewStatus: reviewItems.status,
         })
         .from(ledgerEntries)

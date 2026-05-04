@@ -37,6 +37,7 @@ describe("app", () => {
           currency: "GBP",
           kind: "spend",
           source: "fake-monzo",
+          reviewItemId: "review_fake_1",
           reviewStatus: "needs_review",
           affectsPersonalSpend: true,
         },
