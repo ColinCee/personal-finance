@@ -12,6 +12,7 @@
     "test": "pnpm -r test",
     "format": "biome format --write .",
     "format:check": "biome format .",
+    "validate:private-imports": "pnpm --filter @personal-finance/server validate:private-imports",
     "verify": "pnpm check && pnpm format:check && pnpm lint && pnpm test && pnpm build"
   },
   "devDependencies": {
