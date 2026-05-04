@@ -5,16 +5,20 @@ import { describe, expect, test } from "vitest";
 
 import {
   affectsPersonalSpend,
+  calculateAllocationSummary,
   calculateNetPersonalSpendMinorUnits,
   classifyTransaction,
   type EntryKind,
+  type EconomicAllocation,
   exampleTransactions,
   majorUnitsToMinorUnits,
   parseAmexTransactionsCsv,
   parseFixtureTransactionsCsv,
   parseMonzoTransactionsCsv,
   reviewDecisionActionForKind,
+  type SettlementLink,
   toReviewTransaction,
+  validateSpendAllocations,
 } from ".";
 
 function findExampleTransaction(kind: EntryKind) {
@@ -27,6 +31,39 @@ function findExampleTransaction(kind: EntryKind) {
   }
 
   return transaction;
+}
+
+function ledgerEntry(
+  id: string,
+  amountMinorUnits: number,
+  kind: EntryKind,
+  source: string,
+) {
+  return {
+    id,
+    postedOn: "2026-05-02",
+    description: id,
+    amountMinorUnits,
+    currency: "GBP" as const,
+    kind,
+    source,
+  };
+}
+
+function allocation(
+  id: string,
+  ledgerEntryId: string,
+  purpose: EconomicAllocation["purpose"],
+  amountMinorUnits: number,
+  counterparty: string | null = null,
+): EconomicAllocation {
+  return {
+    id,
+    ledgerEntryId,
+    purpose,
+    amountMinorUnits,
+    counterparty,
+  };
 }
 
 describe("ledger rules", () => {
@@ -145,6 +182,101 @@ describe("classification rules", () => {
       reason: "positive_amount_uncertain",
       reviewRequired: true,
     });
+  });
+});
+
+describe("allocation and settlement accounting", () => {
+  test("counts only personal allocations as personal spend and settlements clear balances", () => {
+    const entries = [
+      ledgerEntry("salary", 300000, "income", "monzo"),
+      ledgerEntry("amex_groceries", -10000, "spend", "amex"),
+      ledgerEntry("amex_business_hotel", -30000, "spend", "amex"),
+      ledgerEntry("amex_friend_dinner", -8000, "spend", "amex"),
+      ledgerEntry("friend_repayment", 4000, "reimbursement", "monzo"),
+      ledgerEntry("monzo_amex_payment", -48000, "credit_card_payment", "monzo"),
+    ] as const;
+    const allocations: EconomicAllocation[] = [
+      allocation("groceries_personal", "amex_groceries", "personal", 10000),
+      allocation(
+        "hotel_business",
+        "amex_business_hotel",
+        "business",
+        30000,
+        "business",
+      ),
+      allocation("dinner_personal", "amex_friend_dinner", "personal", 4000),
+      allocation(
+        "dinner_friend",
+        "amex_friend_dinner",
+        "friend",
+        4000,
+        "friend",
+      ),
+    ];
+    const settlements: SettlementLink[] = [
+      {
+        id: "friend_repayment_settlement",
+        settlementLedgerEntryId: "friend_repayment",
+        allocationId: "dinner_friend",
+        type: "reimbursement",
+        amountMinorUnits: 4000,
+      },
+      {
+        id: "amex_payment_settlement",
+        settlementLedgerEntryId: "monzo_amex_payment",
+        allocationId: null,
+        type: "card_payment",
+        amountMinorUnits: 48000,
+      },
+    ];
+
+    expect(validateSpendAllocations(entries, allocations)).toEqual([]);
+    expect(
+      calculateAllocationSummary(entries, allocations, settlements),
+    ).toEqual({
+      cashflowNetMinorUnits: 208000,
+      personalSpendMinorUnits: 14000,
+      businessOrReimbursableMinorUnits: 30000,
+      creditCardLiabilityMinorUnits: 0,
+      outstandingByPurpose: {
+        personal: 0,
+        partner: 0,
+        joint: 0,
+        friend: 0,
+        business: 30000,
+        reimbursable: 0,
+        excluded: 0,
+      },
+    });
+  });
+
+  test("flags underallocated and overallocated spend entries", () => {
+    const entries = [ledgerEntry("dinner", -8000, "spend", "amex")] as const;
+
+    expect(
+      validateSpendAllocations(entries, [
+        allocation("personal_share", "dinner", "personal", 3000),
+      ]),
+    ).toEqual([
+      {
+        ledgerEntryId: "dinner",
+        expectedMinorUnits: 8000,
+        allocatedMinorUnits: 3000,
+      },
+    ]);
+
+    expect(
+      validateSpendAllocations(entries, [
+        allocation("personal_share", "dinner", "personal", 5000),
+        allocation("friend_share", "dinner", "friend", 5000),
+      ]),
+    ).toEqual([
+      {
+        ledgerEntryId: "dinner",
+        expectedMinorUnits: 8000,
+        allocatedMinorUnits: 10000,
+      },
+    ]);
   });
 });
 

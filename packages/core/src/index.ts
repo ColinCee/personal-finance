@@ -5,6 +5,20 @@ export {
 } from "./money/amount";
 export type { Currency, MinorUnitAmount } from "./money/amount";
 export {
+  allocationPurposes,
+  calculateAllocationSummary,
+  settlementTypes,
+  validateSpendAllocations,
+} from "./allocations/economic-allocation";
+export type {
+  AllocationPurpose,
+  AllocationSummary,
+  AllocationValidationIssue,
+  EconomicAllocation,
+  SettlementLink,
+  SettlementType,
+} from "./allocations/economic-allocation";
+export {
   parseAmexTransactionsCsv,
   parseFixtureTransactionsCsv,
   parseMonzoTransactionsCsv,

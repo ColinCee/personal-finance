@@ -8,11 +8,13 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 import {
+  allocationPurposes,
   entryKinds,
   fileImportSources,
   importSources,
   reviewDecisionActions,
   reviewStatuses,
+  settlementTypes,
 } from "@personal-finance/core";
 
 export const accountTypes = [
@@ -170,6 +172,48 @@ export const reviewDecisions = sqliteTable(
   ],
 );
 
+export const economicAllocations = sqliteTable(
+  "economic_allocations",
+  {
+    id: text("id").primaryKey(),
+    ledgerEntryId: text("ledger_entry_id")
+      .notNull()
+      .references(() => ledgerEntries.id, { onDelete: "cascade" }),
+    purpose: text("purpose", { enum: allocationPurposes }).notNull(),
+    amountMinorUnits: integer("amount_minor_units").notNull(),
+    counterparty: text("counterparty"),
+    createdAt: timestampColumn("created_at"),
+  },
+  (table) => [
+    index("economic_allocations_ledger_entry_idx").on(table.ledgerEntryId),
+    index("economic_allocations_purpose_idx").on(table.purpose),
+  ],
+);
+
+export const settlementLinks = sqliteTable(
+  "settlement_links",
+  {
+    id: text("id").primaryKey(),
+    settlementLedgerEntryId: text("settlement_ledger_entry_id")
+      .notNull()
+      .references(() => ledgerEntries.id, { onDelete: "cascade" }),
+    allocationId: text("allocation_id").references(
+      () => economicAllocations.id,
+      { onDelete: "cascade" },
+    ),
+    type: text("type", { enum: settlementTypes }).notNull(),
+    amountMinorUnits: integer("amount_minor_units").notNull(),
+    createdAt: timestampColumn("created_at"),
+  },
+  (table) => [
+    index("settlement_links_settlement_ledger_entry_idx").on(
+      table.settlementLedgerEntryId,
+    ),
+    index("settlement_links_allocation_idx").on(table.allocationId),
+    index("settlement_links_type_idx").on(table.type),
+  ],
+);
+
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;
 export type ImportedFile = typeof importedFiles.$inferSelect;
@@ -182,3 +226,7 @@ export type ReviewItem = typeof reviewItems.$inferSelect;
 export type NewReviewItem = typeof reviewItems.$inferInsert;
 export type ReviewDecisionRow = typeof reviewDecisions.$inferSelect;
 export type NewReviewDecisionRow = typeof reviewDecisions.$inferInsert;
+export type EconomicAllocationRow = typeof economicAllocations.$inferSelect;
+export type NewEconomicAllocationRow = typeof economicAllocations.$inferInsert;
+export type SettlementLinkRow = typeof settlementLinks.$inferSelect;
+export type NewSettlementLinkRow = typeof settlementLinks.$inferInsert;

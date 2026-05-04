@@ -4,11 +4,13 @@ import { afterEach, describe, expect, test } from "vitest";
 import { createTestDatabase, type TestDatabase } from "../test/database";
 import {
   accounts,
+  economicAllocations,
   importedFiles,
   ledgerEntries,
   rawTransactions,
   reviewDecisions,
   reviewItems,
+  settlementLinks,
 } from "./schema";
 
 let testDatabase: TestDatabase | undefined;
@@ -124,6 +126,49 @@ describe("database schema", () => {
       id: "decision_fake_1",
       action: "confirm_kind",
       decidedKind: "spend",
+    });
+
+    db.insert(economicAllocations)
+      .values({
+        id: "allocation_fake_1",
+        ledgerEntryId: "ledger_fake_1",
+        purpose: "personal",
+        amountMinorUnits: 8240,
+      })
+      .run();
+
+    const [allocation] = db
+      .select()
+      .from(economicAllocations)
+      .where(eq(economicAllocations.ledgerEntryId, "ledger_fake_1"))
+      .all();
+
+    expect(allocation).toMatchObject({
+      id: "allocation_fake_1",
+      purpose: "personal",
+      amountMinorUnits: 8240,
+    });
+
+    db.insert(settlementLinks)
+      .values({
+        id: "settlement_fake_1",
+        settlementLedgerEntryId: "ledger_fake_1",
+        allocationId: "allocation_fake_1",
+        type: "reimbursement",
+        amountMinorUnits: 8240,
+      })
+      .run();
+
+    const [settlement] = db
+      .select()
+      .from(settlementLinks)
+      .where(eq(settlementLinks.allocationId, "allocation_fake_1"))
+      .all();
+
+    expect(settlement).toMatchObject({
+      id: "settlement_fake_1",
+      type: "reimbursement",
+      amountMinorUnits: 8240,
     });
   });
 });
