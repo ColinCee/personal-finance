@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, test } from "vitest";
 
 import {
@@ -6,6 +9,7 @@ import {
   type EntryKind,
   exampleTransactions,
   majorUnitsToMinorUnits,
+  parseFixtureTransactionsCsv,
   toReviewTransaction,
 } from ".";
 
@@ -47,5 +51,59 @@ describe("ledger rules", () => {
     expect(calculateNetPersonalSpendMinorUnits(exampleTransactions)).toBe(
       majorUnitsToMinorUnits(-57.4),
     );
+  });
+});
+
+describe("fixture imports", () => {
+  test("parses the committed fixture CSV", () => {
+    const csv = readFileSync(
+      resolve(import.meta.dirname, "../../../fixtures/transactions.csv"),
+      "utf8",
+    );
+
+    expect(parseFixtureTransactionsCsv(csv)).toHaveLength(4);
+  });
+
+  test("parses fixture CSV rows into normalized transaction inputs", () => {
+    const transactions = parseFixtureTransactionsCsv(
+      [
+        "posted_on,description,amount,currency,kind,source",
+        "2026-05-02,Groceries,-82.40,GBP,spend,fake-amex",
+      ].join("\n"),
+    );
+
+    expect(transactions).toEqual([
+      {
+        id: "fixture:0:2026-05-02:fake-amex",
+        postedOn: "2026-05-02",
+        description: "Groceries",
+        amountMinorUnits: -8240,
+        currency: "GBP",
+        kind: "spend",
+        source: "fake-amex",
+      },
+    ]);
+  });
+
+  test("rejects malformed fixture CSV rows", () => {
+    expect(() =>
+      parseFixtureTransactionsCsv(
+        [
+          "posted_on,description,amount,currency,kind,source",
+          "not-a-date,Groceries,-82.4,GBP,spend,fake-amex",
+        ].join("\n"),
+      ),
+    ).toThrow();
+  });
+
+  test("parses quoted fixture CSV values", () => {
+    const transactions = parseFixtureTransactionsCsv(
+      [
+        "posted_on,description,amount,currency,kind,source",
+        '2026-05-02,"Groceries, household",-82.40,GBP,spend,fake-amex',
+      ].join("\n"),
+    );
+
+    expect(transactions[0]?.description).toBe("Groceries, household");
   });
 });

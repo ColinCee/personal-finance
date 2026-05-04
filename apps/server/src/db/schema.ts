@@ -9,6 +9,7 @@ import {
 
 import {
   entryKinds,
+  fileImportSources,
   importSources,
   reviewStatuses,
 } from "@personal-finance/core";
@@ -47,7 +48,7 @@ export const importedFiles = sqliteTable(
   "imported_files",
   {
     id: text("id").primaryKey(),
-    source: text("source", { enum: importSources }).notNull(),
+    source: text("source", { enum: fileImportSources }).notNull(),
     originalFileName: text("original_file_name").notNull(),
     fileSha256: text("file_sha256").notNull(),
     importedAt: text("imported_at").notNull().default(sql`CURRENT_TIMESTAMP`),

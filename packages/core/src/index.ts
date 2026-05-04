@@ -4,9 +4,10 @@ export {
   minorUnitsToMajorUnits,
 } from "./money/amount";
 export type { Currency, MinorUnitAmount } from "./money/amount";
+export { parseFixtureTransactionsCsv } from "./imports/normalize";
 export type { NormalizedTransactionInput } from "./imports/normalize";
-export { importSources } from "./imports/source";
-export type { ImportSource } from "./imports/source";
+export { fileImportSources, importSources } from "./imports/source";
+export type { FileImportSource, ImportSource } from "./imports/source";
 export { affectsPersonalSpend } from "./rules/spending";
 export { calculateNetPersonalSpendMinorUnits } from "./reports/monthly-summary";
 export { entryKinds } from "./transactions/kinds";

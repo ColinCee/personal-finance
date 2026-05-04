@@ -29,7 +29,7 @@ describe("app", () => {
         .insert(importedFiles)
         .values({
           id: "import_fake_1",
-          source: "fake-monzo",
+          source: "fixture_csv",
           originalFileName: "transactions.csv",
           fileSha256: "fake_hash",
           rowCount: 1,
