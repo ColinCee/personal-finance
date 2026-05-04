@@ -16,6 +16,18 @@ const fakeTransactions = [
     reviewStatus: "needs_review",
     affectsPersonalSpend: false,
   },
+  {
+    id: "txn_fake_2",
+    postedOn: "2026-05-03",
+    description: "Dinner",
+    amountMinorUnits: -8000,
+    currency: "GBP",
+    kind: "spend",
+    source: "fake-amex",
+    reviewItemId: "review_fake_2",
+    reviewStatus: "needs_review",
+    affectsPersonalSpend: true,
+  },
 ];
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -42,6 +54,34 @@ beforeEach(() => {
       };
     }
 
+    if (
+      method === "POST" &&
+      url === "/api/review-items/review_fake_1/allocation-decisions"
+    ) {
+      return {
+        ok: true,
+        json: async () => ({
+          reviewItemId: "review_fake_1",
+          allocationCount: 0,
+          settlementCount: 1,
+        }),
+      };
+    }
+
+    if (
+      method === "POST" &&
+      url === "/api/review-items/review_fake_2/allocation-decisions"
+    ) {
+      return {
+        ok: true,
+        json: async () => ({
+          reviewItemId: "review_fake_2",
+          allocationCount: 2,
+          settlementCount: 0,
+        }),
+      };
+    }
+
     return {
       ok: true,
       json: async () => fakeTransactions,
@@ -56,7 +96,7 @@ test("renders the dashboard", async () => {
   expect(
     await screen.findByRole("heading", { name: "Personal Finance" }),
   ).toBeInTheDocument();
-  expect(await screen.findByText("1 open")).toBeInTheDocument();
+  expect(await screen.findByText("2 open")).toBeInTheDocument();
 });
 
 test("submits a review decision from the inbox", async () => {
@@ -82,6 +122,79 @@ test("submits a review decision from the inbox", async () => {
     expect.objectContaining({
       body: JSON.stringify({
         decidedKind: "credit_card_payment",
+      }),
+    }),
+  );
+});
+
+test("submits a card-payment settlement from the inbox", async () => {
+  window.history.pushState({}, "", "/review");
+  render(<App />);
+
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Settle card payment",
+    }),
+  );
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/review-items/review_fake_1/allocation-decisions",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    ),
+  );
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/review-items/review_fake_1/allocation-decisions",
+    expect.objectContaining({
+      body: JSON.stringify({
+        note: "Recorded from the review inbox as a payment settling the credit-card liability.",
+        settlements: [
+          {
+            type: "card_payment",
+            amountMinorUnits: 250000,
+          },
+        ],
+      }),
+    }),
+  );
+});
+
+test("submits a split allocation from the inbox", async () => {
+  window.history.pushState({}, "", "/review");
+  render(<App />);
+
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Friend 50/50",
+    }),
+  );
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/review-items/review_fake_2/allocation-decisions",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    ),
+  );
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/review-items/review_fake_2/allocation-decisions",
+    expect.objectContaining({
+      body: JSON.stringify({
+        note: "Recorded from the review inbox as a shared expense with a friend.",
+        allocations: [
+          {
+            purpose: "personal",
+            amountMinorUnits: 4000,
+          },
+          {
+            purpose: "friend",
+            amountMinorUnits: 4000,
+            counterparty: "friend",
+          },
+        ],
       }),
     }),
   );

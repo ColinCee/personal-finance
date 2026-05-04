@@ -1,7 +1,15 @@
 import { z } from "zod";
 
-import { entryKinds } from "@personal-finance/core";
-import type { EntryKind } from "@personal-finance/core";
+import {
+  allocationPurposes,
+  entryKinds,
+  settlementTypes,
+} from "@personal-finance/core";
+import type {
+  AllocationPurpose,
+  EntryKind,
+  SettlementType,
+} from "@personal-finance/core";
 
 const entryKindSchema = z.enum(entryKinds);
 
@@ -36,6 +44,55 @@ export type ReviewDecisionInput = {
   note?: string;
 };
 
+const allocationDecisionSchema = z.object({
+  reviewItemId: z.string(),
+  allocationCount: z.number().int(),
+  settlementCount: z.number().int(),
+});
+
+export type AllocationDecision = z.infer<typeof allocationDecisionSchema>;
+
+export type AllocationDecisionInput = {
+  reviewItemId: string;
+  note?: string;
+  allocations?: readonly AllocationDecisionAllocationInput[];
+  settlements?: readonly AllocationDecisionSettlementInput[];
+};
+
+export type AllocationDecisionAllocationInput = {
+  purpose: AllocationPurpose;
+  amountMinorUnits: number;
+  counterparty?: string;
+};
+
+export type AllocationDecisionSettlementInput = {
+  allocationId?: string | null;
+  type: SettlementType;
+  amountMinorUnits: number;
+};
+
+const allocationDecisionPayloadSchema = z.object({
+  note: z.string().optional(),
+  allocations: z
+    .array(
+      z.object({
+        purpose: z.enum(allocationPurposes),
+        amountMinorUnits: z.number().int().positive(),
+        counterparty: z.string().optional(),
+      }),
+    )
+    .optional(),
+  settlements: z
+    .array(
+      z.object({
+        allocationId: z.string().nullable().optional(),
+        type: z.enum(settlementTypes),
+        amountMinorUnits: z.number().int().positive(),
+      }),
+    )
+    .optional(),
+});
+
 export async function fetchTransactions(): Promise<Transaction[]> {
   const response = await fetch("/api/transactions");
 
@@ -66,4 +123,28 @@ export async function submitReviewDecision(
   }
 
   return reviewDecisionSchema.parse(await response.json());
+}
+
+export async function submitAllocationDecision(
+  decision: AllocationDecisionInput,
+): Promise<AllocationDecision> {
+  const payload = allocationDecisionPayloadSchema.parse({
+    note: decision.note,
+    allocations: decision.allocations,
+    settlements: decision.settlements,
+  });
+  const response = await fetch(
+    `/api/review-items/${decision.reviewItemId}/allocation-decisions`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to submit allocation decision: ${response.status}`);
+  }
+
+  return allocationDecisionSchema.parse(await response.json());
 }

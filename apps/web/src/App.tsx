@@ -15,10 +15,11 @@ import {
 } from "@tanstack/react-router";
 import { useState } from "react";
 
-import type { EntryKind } from "@personal-finance/core";
+import type { AllocationPurpose, EntryKind } from "@personal-finance/core";
 import { Button } from "@/components/ui/button";
 import {
   fetchTransactions,
+  submitAllocationDecision,
   submitReviewDecision,
   type Transaction,
 } from "./api";
@@ -129,10 +130,17 @@ function ReviewInbox() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["transactions"] }),
   });
+  const allocationDecision = useMutation({
+    mutationFn: submitAllocationDecision,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+  });
   const rows = transactions.data ?? [];
-  const pendingReviewItemId = reviewDecision.isPending
-    ? reviewDecision.variables.reviewItemId
-    : null;
+  const pendingReviewItemId =
+    reviewDecision.isPending || allocationDecision.isPending
+      ? (reviewDecision.variables?.reviewItemId ??
+        allocationDecision.variables?.reviewItemId)
+      : null;
 
   if (transactions.isLoading) {
     return <p className="panel">Loading transactions...</p>;
@@ -159,9 +167,9 @@ function ReviewInbox() {
         </div>
       </div>
 
-      {reviewDecision.isError ? (
+      {reviewDecision.isError || allocationDecision.isError ? (
         <p className="decision-error" role="alert">
-          {reviewDecision.error.message}
+          {reviewDecision.error?.message ?? allocationDecision.error?.message}
         </p>
       ) : null}
 
@@ -225,6 +233,20 @@ function ReviewInbox() {
                             : `Changed from ${formatEntryKind(transaction.kind)} in the review inbox.`,
                       });
                     }}
+                    onAllocationDecision={(allocationChoice) => {
+                      if (!transaction.reviewItemId) {
+                        throw new Error(
+                          `Transaction has no review item: ${transaction.id}`,
+                        );
+                      }
+
+                      allocationDecision.mutate({
+                        reviewItemId: transaction.reviewItemId,
+                        note: allocationChoice.note,
+                        allocations: allocationChoice.allocations,
+                        settlements: allocationChoice.settlements,
+                      });
+                    }}
                   />
                 </td>
               </tr>
@@ -240,6 +262,7 @@ function ReviewActions(props: {
   pending: boolean;
   transaction: Transaction;
   onDecision: (decidedKind: EntryKind) => void;
+  onAllocationDecision: (choice: AllocationChoice) => void;
 }) {
   if (
     props.transaction.reviewStatus === "confirmed" ||
@@ -272,9 +295,34 @@ function ReviewActions(props: {
             Mark {option.label}
           </Button>
         ))}
+      {allocationChoicesForTransaction(props.transaction).map((choice) => (
+        <Button
+          disabled={props.pending}
+          key={choice.label}
+          onClick={() => props.onAllocationDecision(choice)}
+          size="sm"
+          variant="secondary"
+        >
+          {choice.label}
+        </Button>
+      ))}
     </div>
   );
 }
+
+type AllocationChoice = {
+  label: string;
+  note: string;
+  allocations?: readonly {
+    purpose: AllocationPurpose;
+    amountMinorUnits: number;
+    counterparty?: string;
+  }[];
+  settlements?: readonly {
+    type: "card_payment";
+    amountMinorUnits: number;
+  }[];
+};
 
 function SummaryCard(props: { label: string; value: string; hint?: string }) {
   return (
@@ -325,4 +373,92 @@ function impactLabel(transaction: Transaction): string {
   return transaction.affectsPersonalSpend
     ? "Counts as spend"
     : "Excluded from spend";
+}
+
+function allocationChoicesForTransaction(
+  transaction: Transaction,
+): AllocationChoice[] {
+  if (transaction.amountMinorUnits >= 0) {
+    return [];
+  }
+
+  const amountMinorUnits = Math.abs(transaction.amountMinorUnits);
+
+  if (transaction.kind === "credit_card_payment") {
+    return [
+      {
+        label: "Settle card payment",
+        note: "Recorded from the review inbox as a payment settling the credit-card liability.",
+        settlements: [
+          {
+            type: "card_payment",
+            amountMinorUnits,
+          },
+        ],
+      },
+    ];
+  }
+
+  const halfMinorUnits = Math.floor(amountMinorUnits / 2);
+  const personalShareMinorUnits = amountMinorUnits - halfMinorUnits;
+
+  return [
+    fullAllocationChoice("Personal spend", "personal", amountMinorUnits),
+    fullAllocationChoice("Business", "business", amountMinorUnits, "business"),
+    fullAllocationChoice(
+      "Reimbursable",
+      "reimbursable",
+      amountMinorUnits,
+      "to be reimbursed",
+    ),
+    {
+      label: "Friend 50/50",
+      note: "Recorded from the review inbox as a shared expense with a friend.",
+      allocations: [
+        {
+          purpose: "personal",
+          amountMinorUnits: personalShareMinorUnits,
+        },
+        {
+          purpose: "friend",
+          amountMinorUnits: halfMinorUnits,
+          counterparty: "friend",
+        },
+      ],
+    },
+    {
+      label: "Partner 50/50",
+      note: "Recorded from the review inbox as a shared expense with a partner.",
+      allocations: [
+        {
+          purpose: "personal",
+          amountMinorUnits: personalShareMinorUnits,
+        },
+        {
+          purpose: "partner",
+          amountMinorUnits: halfMinorUnits,
+          counterparty: "partner",
+        },
+      ],
+    },
+  ];
+}
+
+function fullAllocationChoice(
+  label: string,
+  purpose: AllocationPurpose,
+  amountMinorUnits: number,
+  counterparty?: string,
+): AllocationChoice {
+  return {
+    label,
+    note: `Recorded from the review inbox as ${label.toLowerCase()}.`,
+    allocations: [
+      {
+        purpose,
+        amountMinorUnits,
+        counterparty,
+      },
+    ],
+  };
 }

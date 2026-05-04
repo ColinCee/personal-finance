@@ -4,3 +4,10 @@ export class ReviewItemNotFoundError extends Error {
     this.name = "ReviewItemNotFoundError";
   }
 }
+
+export class AllocationDecisionInvalidError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AllocationDecisionInvalidError";
+  }
+}

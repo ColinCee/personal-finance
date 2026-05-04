@@ -6,11 +6,13 @@ import { createTestDatabase } from "./test/database";
 import { createApp } from "./app";
 import {
   accounts,
+  economicAllocations,
   importedFiles,
   ledgerEntries,
   rawTransactions,
   reviewDecisions,
   reviewItems,
+  settlementLinks,
 } from "./db/schema";
 
 describe("app", () => {
@@ -178,6 +180,151 @@ describe("app", () => {
       await expect(response.json()).resolves.toEqual({
         error: "Review item not found: missing_review",
       });
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("records a business allocation decision from a review item", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      seedAppReviewFixture(testDatabase.db, {
+        amountMinorUnits: -30000,
+        description: "Business hotel",
+        kind: "spend",
+      });
+      const app = createApp(testDatabase.db);
+
+      const response = await app.request(
+        "/api/review-items/review_fake_1/allocation-decisions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            allocations: [
+              {
+                purpose: "business",
+                amountMinorUnits: 30000,
+                counterparty: "business",
+              },
+            ],
+            note: "Business expense on personal card.",
+          }),
+        },
+      );
+
+      expect(response.status).toBe(201);
+      await expect(response.json()).resolves.toEqual({
+        reviewItemId: "review_fake_1",
+        allocationCount: 1,
+        settlementCount: 0,
+      });
+      expect(
+        testDatabase.db.select().from(economicAllocations).all(),
+      ).toMatchObject([
+        {
+          ledgerEntryId: "ledger_fake_1",
+          purpose: "business",
+          amountMinorUnits: 30000,
+          counterparty: "business",
+        },
+      ]);
+      expect(testDatabase.db.select().from(reviewItems).get()).toMatchObject({
+        status: "confirmed",
+      });
+      expect(testDatabase.db.select().from(reviewDecisions).all()).toHaveLength(
+        1,
+      );
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("records a card-payment settlement decision from a review item", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      seedAppReviewFixture(testDatabase.db, {
+        amountMinorUnits: -48000,
+        description: "Amex payment",
+        kind: "credit_card_payment",
+      });
+      const app = createApp(testDatabase.db);
+
+      const response = await app.request(
+        "/api/review-items/review_fake_1/allocation-decisions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            settlements: [
+              {
+                type: "card_payment",
+                amountMinorUnits: 48000,
+              },
+            ],
+            note: "Monzo payment settling Amex liability.",
+          }),
+        },
+      );
+
+      expect(response.status).toBe(201);
+      await expect(response.json()).resolves.toEqual({
+        reviewItemId: "review_fake_1",
+        allocationCount: 0,
+        settlementCount: 1,
+      });
+      expect(
+        testDatabase.db.select().from(settlementLinks).all(),
+      ).toMatchObject([
+        {
+          settlementLedgerEntryId: "ledger_fake_1",
+          allocationId: null,
+          type: "card_payment",
+          amountMinorUnits: 48000,
+        },
+      ]);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("rejects allocation decisions that do not fully allocate an outflow", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      seedAppReviewFixture(testDatabase.db, {
+        amountMinorUnits: -30000,
+        description: "Business hotel",
+        kind: "spend",
+      });
+      const app = createApp(testDatabase.db);
+
+      const response = await app.request(
+        "/api/review-items/review_fake_1/allocation-decisions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            allocations: [
+              {
+                purpose: "business",
+                amountMinorUnits: 20000,
+              },
+            ],
+          }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error:
+          "Allocation amounts must sum to 30000 minor units; received 20000.",
+      });
+      expect(testDatabase.db.select().from(economicAllocations).all()).toEqual(
+        [],
+      );
     } finally {
       testDatabase.cleanup();
     }

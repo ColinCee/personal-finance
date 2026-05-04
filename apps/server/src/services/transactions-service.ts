@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import type { EntryKind } from "@personal-finance/core";
-import type { ReviewTransaction } from "@personal-finance/core";
+import type {
+  AllocationPurpose,
+  ReviewTransaction,
+  SettlementType,
+} from "@personal-finance/core";
 
 import type { TransactionsRepository } from "../repositories/transactions-repository";
 
@@ -10,6 +14,9 @@ export type TransactionsService = {
   recordReviewDecision: (
     decision: ReviewDecisionRequest,
   ) => ReviewDecisionResponse;
+  recordAllocationDecision: (
+    decision: AllocationDecisionRequest,
+  ) => AllocationDecisionResponse;
 };
 
 export type ReviewDecisionRequest = {
@@ -26,6 +33,31 @@ export type ReviewDecisionResponse = {
   note: string | null;
 };
 
+export type AllocationDecisionRequest = {
+  reviewItemId: string;
+  note?: string;
+  allocations?: readonly AllocationDecisionAllocation[];
+  settlements?: readonly AllocationDecisionSettlement[];
+};
+
+export type AllocationDecisionAllocation = {
+  purpose: AllocationPurpose;
+  amountMinorUnits: number;
+  counterparty?: string;
+};
+
+export type AllocationDecisionSettlement = {
+  allocationId?: string | null;
+  type: SettlementType;
+  amountMinorUnits: number;
+};
+
+export type AllocationDecisionResponse = {
+  reviewItemId: string;
+  allocationCount: number;
+  settlementCount: number;
+};
+
 export function createTransactionsService(
   transactionsRepository: TransactionsRepository,
 ): TransactionsService {
@@ -36,6 +68,20 @@ export function createTransactionsService(
       transactionsRepository.appendReviewDecision({
         id: `review_decision_${randomUUID()}`,
         ...decision,
+      }),
+    recordAllocationDecision: (decision) =>
+      transactionsRepository.appendAllocationDecision({
+        reviewDecisionId: `review_decision_${randomUUID()}`,
+        reviewItemId: decision.reviewItemId,
+        note: decision.note,
+        allocations: (decision.allocations ?? []).map((allocation) => ({
+          id: `allocation_${randomUUID()}`,
+          ...allocation,
+        })),
+        settlements: (decision.settlements ?? []).map((settlement) => ({
+          id: `settlement_${randomUUID()}`,
+          ...settlement,
+        })),
       }),
   };
 }
