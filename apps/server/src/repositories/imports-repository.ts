@@ -1,6 +1,9 @@
 import { and, eq } from "drizzle-orm";
 
-import type { NormalizedTransactionInput } from "@personal-finance/core";
+import {
+  classifyTransaction,
+  type NormalizedTransactionInput,
+} from "@personal-finance/core";
 
 import type { AppDatabase } from "../db/client";
 import {
@@ -86,6 +89,7 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
         let reviewItemCount = 0;
 
         record.transactions.forEach((entry, index) => {
+          const classification = classifyTransaction(entry);
           const rowHash = `${record.fileSha256}:${index}`;
           const rawTransactionId = `raw_${record.importId}_${index}`;
           const ledgerEntryId = `ledger_${record.importId}_${index}`;
@@ -118,12 +122,12 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
               description: entry.description,
               amountMinorUnits: entry.amountMinorUnits,
               currency: entry.currency,
-              kind: entry.kind,
+              kind: classification.kind,
               source: entry.source,
             })
             .run();
 
-          if (entry.kind !== "spend") {
+          if (classification.reviewRequired) {
             reviewItemCount += 1;
             transaction
               .insert(reviewItems)
@@ -131,7 +135,7 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
                 id: `review_${record.importId}_${index}`,
                 ledgerEntryId,
                 status: "needs_review",
-                reason: "fixture_import_uncertain_kind",
+                reason: classification.reason,
               })
               .run();
           }

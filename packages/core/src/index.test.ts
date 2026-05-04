@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import {
   affectsPersonalSpend,
   calculateNetPersonalSpendMinorUnits,
+  classifyTransaction,
   type EntryKind,
   exampleTransactions,
   majorUnitsToMinorUnits,
@@ -63,6 +64,87 @@ describe("ledger rules", () => {
     expect(calculateNetPersonalSpendMinorUnits(exampleTransactions)).toBe(
       majorUnitsToMinorUnits(-57.4),
     );
+  });
+});
+
+describe("classification rules", () => {
+  test("classifies salary income as high confidence without review", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: 300000,
+        description: "Monthly salary",
+        kind: "income",
+        source: "monzo",
+      }),
+    ).toEqual({
+      kind: "income",
+      confidence: "high",
+      reason: "salary_income",
+      reviewRequired: false,
+    });
+  });
+
+  test("classifies Monzo Amex payments as credit-card payments", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: -250000,
+        description: "American Express card payment",
+        kind: "spend",
+        source: "monzo",
+      }),
+    ).toEqual({
+      kind: "credit_card_payment",
+      confidence: "high",
+      reason: "credit_card_payment",
+      reviewRequired: false,
+    });
+  });
+
+  test("classifies internal savings transfers without counting them as spend", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: -50000,
+        description: "Transfer to savings",
+        kind: "spend",
+        source: "monzo",
+      }),
+    ).toMatchObject({
+      kind: "transfer",
+      confidence: "high",
+      reviewRequired: false,
+    });
+  });
+
+  test("keeps joint split settlements in review", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: -4200,
+        description: "Joint dinner split",
+        kind: "spend",
+        source: "monzo",
+      }),
+    ).toEqual({
+      kind: "split_settlement",
+      confidence: "medium",
+      reason: "split_settlement",
+      reviewRequired: true,
+    });
+  });
+
+  test("keeps ambiguous positive credits in review", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: 2500,
+        description: "Bank credit",
+        kind: "income",
+        source: "monzo",
+      }),
+    ).toEqual({
+      kind: "income",
+      confidence: "low",
+      reason: "positive_amount_uncertain",
+      reviewRequired: true,
+    });
   });
 });
 

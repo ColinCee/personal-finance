@@ -33,11 +33,11 @@ describe("imports service", () => {
         imported: true,
         rawTransactionCount: 4,
         ledgerEntryCount: 4,
-        reviewItemCount: 3,
+        reviewItemCount: 0,
       });
       expect(tableCount(testDatabase.db, rawTransactions)).toBe(4);
       expect(tableCount(testDatabase.db, ledgerEntries)).toBe(4);
-      expect(tableCount(testDatabase.db, reviewItems)).toBe(3);
+      expect(tableCount(testDatabase.db, reviewItems)).toBe(0);
     } finally {
       testDatabase.cleanup();
     }
@@ -68,6 +68,44 @@ describe("imports service", () => {
       });
       expect(tableCount(testDatabase.db, rawTransactions)).toBe(4);
       expect(tableCount(testDatabase.db, ledgerEntries)).toBe(4);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("keeps uncertain classification matches in review", () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      const importsService = createImportsService(
+        createImportsRepository(testDatabase.db),
+      );
+
+      const result = importsService.importFixtureCsv({
+        csv: [
+          "posted_on,description,amount,currency,kind,source",
+          "2026-05-02,Bank credit,25.00,GBP,income,fake-monzo",
+          "2026-05-03,Joint dinner split,-42.00,GBP,spend,fake-monzo",
+        ].join("\n"),
+        originalFileName: "uncertain-transactions.csv",
+      });
+
+      expect(result).toMatchObject({
+        imported: true,
+        rawTransactionCount: 2,
+        ledgerEntryCount: 2,
+        reviewItemCount: 2,
+      });
+      expect(testDatabase.db.select().from(reviewItems).all()).toMatchObject([
+        {
+          reason: "positive_amount_uncertain",
+          status: "needs_review",
+        },
+        {
+          reason: "split_settlement",
+          status: "needs_review",
+        },
+      ]);
     } finally {
       testDatabase.cleanup();
     }

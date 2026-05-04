@@ -12,6 +12,15 @@ export {
 export type { NormalizedTransactionInput } from "./imports/normalize";
 export { fileImportSources, importSources } from "./imports/source";
 export type { FileImportSource, ImportSource } from "./imports/source";
+export {
+  classifyTransaction,
+  classificationConfidences,
+} from "./rules/classification";
+export type {
+  ClassificationConfidence,
+  ClassificationReason,
+  TransactionClassification,
+} from "./rules/classification";
 export { affectsPersonalSpend } from "./rules/spending";
 export { calculateNetPersonalSpendMinorUnits } from "./reports/monthly-summary";
 export { entryKinds } from "./transactions/kinds";
