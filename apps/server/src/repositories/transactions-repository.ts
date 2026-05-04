@@ -22,6 +22,7 @@ import {
 } from "../db/schema";
 import {
   AllocationDecisionInvalidError,
+  ReviewItemAlreadyResolvedError,
   ReviewItemNotFoundError,
 } from "../errors";
 
@@ -68,6 +69,14 @@ export type AllocationDecisionResult = {
   settlementCount: number;
 };
 
+type ReviewItemForDecision = {
+  id: string;
+  ledgerEntryId: string;
+  detectedKind: EntryKind;
+  status: "needs_review" | "confirmed";
+  amountMinorUnits?: number;
+};
+
 export function createTransactionsRepository(
   db: AppDatabase,
 ): TransactionsRepository {
@@ -101,6 +110,7 @@ export function createTransactionsRepository(
             id: reviewItems.id,
             ledgerEntryId: reviewItems.ledgerEntryId,
             detectedKind: ledgerEntries.kind,
+            status: reviewItems.status,
           })
           .from(reviewItems)
           .innerJoin(
@@ -113,6 +123,7 @@ export function createTransactionsRepository(
         if (!reviewItem) {
           throw new ReviewItemNotFoundError(decision.reviewItemId);
         }
+        assertReviewItemCanReceiveDecision(reviewItem);
 
         const action = reviewDecisionActionForKind(
           reviewItem.detectedKind,
@@ -154,6 +165,7 @@ export function createTransactionsRepository(
             id: reviewItems.id,
             ledgerEntryId: reviewItems.ledgerEntryId,
             detectedKind: ledgerEntries.kind,
+            status: reviewItems.status,
             amountMinorUnits: ledgerEntries.amountMinorUnits,
           })
           .from(reviewItems)
@@ -167,6 +179,7 @@ export function createTransactionsRepository(
         if (!reviewItem) {
           throw new ReviewItemNotFoundError(decision.reviewItemId);
         }
+        assertReviewItemCanReceiveDecision(reviewItem);
 
         validateAllocationDecision({
           ledgerEntryId: reviewItem.ledgerEntryId,
@@ -175,33 +188,19 @@ export function createTransactionsRepository(
           settlements: decision.settlements,
         });
 
-        if (decision.allocations.length > 0) {
+        if (hasEconomicAllocations(decision)) {
           transaction
             .insert(economicAllocations)
             .values(
-              decision.allocations.map((allocation) => ({
-                id: allocation.id,
-                ledgerEntryId: reviewItem.ledgerEntryId,
-                purpose: allocation.purpose,
-                amountMinorUnits: allocation.amountMinorUnits,
-                counterparty: allocation.counterparty,
-              })),
+              toEconomicAllocationRows(decision, reviewItem.ledgerEntryId),
             )
             .run();
         }
 
-        if (decision.settlements.length > 0) {
+        if (hasSettlementLinks(decision)) {
           transaction
             .insert(settlementLinks)
-            .values(
-              decision.settlements.map((settlement) => ({
-                id: settlement.id,
-                settlementLedgerEntryId: reviewItem.ledgerEntryId,
-                allocationId: settlement.allocationId,
-                type: settlement.type,
-                amountMinorUnits: settlement.amountMinorUnits,
-              })),
-            )
+            .values(toSettlementLinkRows(decision, reviewItem.ledgerEntryId))
             .run();
         }
 
@@ -232,6 +231,46 @@ export function createTransactionsRepository(
         };
       }),
   };
+}
+
+function assertReviewItemCanReceiveDecision(reviewItem: ReviewItemForDecision) {
+  if (reviewItem.status !== "needs_review") {
+    throw new ReviewItemAlreadyResolvedError(reviewItem.id);
+  }
+}
+
+function hasEconomicAllocations(decision: NewAllocationDecision): boolean {
+  return decision.allocations.length > 0;
+}
+
+function hasSettlementLinks(decision: NewAllocationDecision): boolean {
+  return decision.settlements.length > 0;
+}
+
+function toEconomicAllocationRows(
+  decision: NewAllocationDecision,
+  ledgerEntryId: string,
+): (typeof economicAllocations.$inferInsert)[] {
+  return decision.allocations.map((allocation) => ({
+    id: allocation.id,
+    ledgerEntryId,
+    purpose: allocation.purpose,
+    amountMinorUnits: allocation.amountMinorUnits,
+    counterparty: allocation.counterparty,
+  }));
+}
+
+function toSettlementLinkRows(
+  decision: NewAllocationDecision,
+  settlementLedgerEntryId: string,
+): (typeof settlementLinks.$inferInsert)[] {
+  return decision.settlements.map((settlement) => ({
+    id: settlement.id,
+    settlementLedgerEntryId,
+    allocationId: settlement.allocationId,
+    type: settlement.type,
+    amountMinorUnits: settlement.amountMinorUnits,
+  }));
 }
 
 function validateAllocationDecision(input: {

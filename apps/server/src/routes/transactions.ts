@@ -8,6 +8,7 @@ import {
 } from "@personal-finance/core";
 import {
   AllocationDecisionInvalidError,
+  ReviewItemAlreadyResolvedError,
   ReviewItemNotFoundError,
 } from "../errors";
 import type { TransactionsService } from "../services/transactions-service";
@@ -75,6 +76,10 @@ export function createTransactionsRoutes(
         return context.json({ error: error.message }, 404);
       }
 
+      if (error instanceof ReviewItemAlreadyResolvedError) {
+        return context.json({ error: error.message }, 409);
+      }
+
       throw error;
     }
   });
@@ -106,6 +111,10 @@ export function createTransactionsRoutes(
       } catch (error) {
         if (error instanceof ReviewItemNotFoundError) {
           return context.json({ error: error.message }, 404);
+        }
+
+        if (error instanceof ReviewItemAlreadyResolvedError) {
+          return context.json({ error: error.message }, 409);
         }
 
         if (error instanceof AllocationDecisionInvalidError) {

@@ -5,6 +5,13 @@ export class ReviewItemNotFoundError extends Error {
   }
 }
 
+export class ReviewItemAlreadyResolvedError extends Error {
+  constructor(reviewItemId: string) {
+    super(`Review item is already resolved: ${reviewItemId}`);
+    this.name = "ReviewItemAlreadyResolvedError";
+  }
+}
+
 export class AllocationDecisionInvalidError extends Error {
   constructor(message: string) {
     super(message);
