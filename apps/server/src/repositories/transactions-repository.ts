@@ -9,6 +9,7 @@ import type { EntryKind, ReviewDecision } from "@personal-finance/core";
 
 import type { AppDatabase } from "../db/client";
 import { ledgerEntries, reviewDecisions, reviewItems } from "../db/schema";
+import { ReviewItemNotFoundError } from "../errors";
 
 export type TransactionsRepository = {
   listReviewTransactions: () => ReviewTransaction[];
@@ -64,7 +65,7 @@ export function createTransactionsRepository(
           .get();
 
         if (!reviewItem) {
-          throw new Error(`Review item not found: ${decision.reviewItemId}`);
+          throw new ReviewItemNotFoundError(decision.reviewItemId);
         }
 
         const action = reviewDecisionActionForKind(
