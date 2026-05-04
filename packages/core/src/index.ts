@@ -17,6 +17,16 @@ export { calculateNetPersonalSpendMinorUnits } from "./reports/monthly-summary";
 export { entryKinds } from "./transactions/kinds";
 export type { EntryKind } from "./transactions/kinds";
 export type { LedgerEntry } from "./transactions/ledger-entry";
-export { reviewStatuses, toReviewTransaction } from "./transactions/review";
-export type { ReviewStatus, ReviewTransaction } from "./transactions/review";
+export {
+  reviewDecisionActions,
+  reviewDecisionActionForKind,
+  reviewStatuses,
+  toReviewTransaction,
+} from "./transactions/review";
+export type {
+  ReviewDecision,
+  ReviewDecisionAction,
+  ReviewStatus,
+  ReviewTransaction,
+} from "./transactions/review";
 export { exampleTransactions } from "./fixtures/example-transactions";

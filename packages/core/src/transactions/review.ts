@@ -1,9 +1,22 @@
 import { affectsPersonalSpend } from "../rules/spending";
+import type { EntryKind } from "./kinds";
 import type { LedgerEntry } from "./ledger-entry";
 
 export const reviewStatuses = ["needs_review", "confirmed"] as const;
 
 export type ReviewStatus = (typeof reviewStatuses)[number];
+
+export const reviewDecisionActions = ["confirm_kind", "change_kind"] as const;
+
+export type ReviewDecisionAction = (typeof reviewDecisionActions)[number];
+
+export type ReviewDecision = {
+  id: string;
+  reviewItemId: string;
+  action: ReviewDecisionAction;
+  decidedKind: EntryKind;
+  note: string | null;
+};
 
 export type ReviewTransaction = LedgerEntry & {
   reviewStatus: ReviewStatus;
@@ -16,4 +29,11 @@ export function toReviewTransaction(entry: LedgerEntry): ReviewTransaction {
     affectsPersonalSpend: affectsPersonalSpend(entry),
     reviewStatus: entry.kind === "spend" ? "confirmed" : "needs_review",
   };
+}
+
+export function reviewDecisionActionForKind(
+  detectedKind: EntryKind,
+  decidedKind: EntryKind,
+): ReviewDecisionAction {
+  return detectedKind === decidedKind ? "confirm_kind" : "change_kind";
 }

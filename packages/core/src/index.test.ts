@@ -12,6 +12,7 @@ import {
   parseAmexTransactionsCsv,
   parseFixtureTransactionsCsv,
   parseMonzoTransactionsCsv,
+  reviewDecisionActionForKind,
   toReviewTransaction,
 } from ".";
 
@@ -47,6 +48,15 @@ describe("ledger rules", () => {
     expect(toReviewTransaction(reimbursement).reviewStatus).toBe(
       "needs_review",
     );
+  });
+
+  test("models review decisions as confirmations or kind changes", () => {
+    expect(reviewDecisionActionForKind("credit_card_payment", "spend")).toBe(
+      "change_kind",
+    );
+    expect(
+      reviewDecisionActionForKind("credit_card_payment", "credit_card_payment"),
+    ).toBe("confirm_kind");
   });
 
   test("calculates net personal spend from spend-like entries only", () => {

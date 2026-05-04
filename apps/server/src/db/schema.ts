@@ -11,6 +11,7 @@ import {
   entryKinds,
   fileImportSources,
   importSources,
+  reviewDecisionActions,
   reviewStatuses,
 } from "@personal-finance/core";
 
@@ -149,6 +150,26 @@ export const reviewItems = sqliteTable(
   ],
 );
 
+export const reviewDecisions = sqliteTable(
+  "review_decisions",
+  {
+    id: text("id").primaryKey(),
+    reviewItemId: text("review_item_id")
+      .notNull()
+      .references(() => reviewItems.id, { onDelete: "cascade" }),
+    action: text("action", { enum: reviewDecisionActions }).notNull(),
+    decidedKind: text("decided_kind", { enum: entryKinds }).notNull(),
+    note: text("note"),
+    createdAt: timestampColumn("created_at"),
+  },
+  (table) => [
+    index("review_decisions_review_item_created_at_idx").on(
+      table.reviewItemId,
+      table.createdAt,
+    ),
+  ],
+);
+
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;
 export type ImportedFile = typeof importedFiles.$inferSelect;
@@ -159,3 +180,5 @@ export type LedgerEntryRow = typeof ledgerEntries.$inferSelect;
 export type NewLedgerEntryRow = typeof ledgerEntries.$inferInsert;
 export type ReviewItem = typeof reviewItems.$inferSelect;
 export type NewReviewItem = typeof reviewItems.$inferInsert;
+export type ReviewDecisionRow = typeof reviewDecisions.$inferSelect;
+export type NewReviewDecisionRow = typeof reviewDecisions.$inferInsert;

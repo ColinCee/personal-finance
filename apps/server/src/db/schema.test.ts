@@ -7,6 +7,7 @@ import {
   importedFiles,
   ledgerEntries,
   rawTransactions,
+  reviewDecisions,
   reviewItems,
 } from "./schema";
 
@@ -102,6 +103,27 @@ describe("database schema", () => {
       id: "review_fake_1",
       status: "confirmed",
       reason: "ordinary_spend",
+    });
+
+    db.insert(reviewDecisions)
+      .values({
+        id: "decision_fake_1",
+        reviewItemId: "review_fake_1",
+        action: "confirm_kind",
+        decidedKind: "spend",
+      })
+      .run();
+
+    const [decision] = db
+      .select()
+      .from(reviewDecisions)
+      .where(eq(reviewDecisions.reviewItemId, "review_fake_1"))
+      .all();
+
+    expect(decision).toMatchObject({
+      id: "decision_fake_1",
+      action: "confirm_kind",
+      decidedKind: "spend",
     });
   });
 });
