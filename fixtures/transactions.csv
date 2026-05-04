@@ -1,0 +1,5 @@
+posted_on,description,amount,currency,kind,source
+2026-05-01,Salary,3000.00,GBP,income,fake-monzo
+2026-05-02,Groceries,-82.40,GBP,spend,fake-amex
+2026-05-03,Amex payment,-82.40,GBP,credit_card_payment,fake-monzo
+2026-05-04,Dinner repayment,25.00,GBP,reimbursement,fake-monzo

@@ -1,0 +1,20 @@
+# Dependencies and build outputs
+node_modules/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# Local private storage. Keep real exports and generated databases out of git.
+storage/*
+!storage/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+
+# Local environment/config
+.env
+.env.*
+
+# Tool caches
+.vite/
+coverage/
