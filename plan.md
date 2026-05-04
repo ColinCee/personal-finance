@@ -210,17 +210,39 @@ Likely future entities:
 - Imported file
 - Raw transaction
 - Ledger transaction
+- Economic posting / allocation
 - Review item
 - Category
 - Merchant rule
 - Transfer match
 - Reimbursement match
+- Settlement match
+- Counterparty
 - Split rule
 - Budget
 - Budget period
 
 The app should preserve raw imported rows and derive normalized ledger entries from them. That makes
 imports auditable and lets rules improve over time without losing the original source data.
+
+Research/evaluation note: established double-entry and plain-text accounting systems model credit
+card purchases, card payments, reimbursements, and shared expenses as distinct postings across asset,
+liability, expense, and receivable accounts. That confirms the app should not treat a bank row's
+category as the final truth. The durable model should separate:
+
+- **Cashflow:** what moved through Monzo, Amex, joint accounts, or cash.
+- **Classification:** whether the movement is income, spend, transfer, card settlement,
+  reimbursement, or split settlement.
+- **Allocation:** who or what economically owns the cost: personal, partner, joint, friend,
+  business, reimbursable, or excluded.
+- **Settlement:** which later movement offsets which earlier allocation: Monzo paying Amex, a friend
+  paying back dinner, a partner settling a joint balance, or a business reimbursement clearing a
+  business expense.
+
+This is essential because the real-world flow is often `income -> Amex payment`, with spending,
+friends paying back, partner/joint spending, and business expenses in between. Reports must count
+Amex purchases once, count only the user's owned share as personal spend, and treat the Monzo Amex
+payment as liability settlement rather than new spending.
 
 ## Implementation plan
 
@@ -343,7 +365,48 @@ Validation:
 - Rule changes include before/after examples in test names or fixtures so future failures explain the
   financial behavior that changed.
 
-### Stage 5: Reporting and budgets
+### Stage 5: Allocation and settlement model
+
+Goal: model who actually owns each cost and which payments settle earlier obligations before any
+monthly report is treated as accurate.
+
+- Add economic allocation entities for ledger entries:
+  - owner/purpose: personal, partner, joint, friend, business, reimbursable, excluded;
+  - amount in minor units;
+  - optional counterparty;
+  - review/audit metadata.
+- Add settlement links between ledger entries/allocations:
+  - Monzo payment settling Amex liability;
+  - friend/partner reimbursement settling an owed share;
+  - business reimbursement settling a business/reimbursable expense.
+- Extend review decisions so the user can mark:
+  - a row as 100% business/reimbursable;
+  - a row as joint or partner-owned;
+  - a fixed amount or percentage split;
+  - a reimbursement as linked to a prior allocation.
+- Keep raw transactions and normalized ledger entries immutable; store allocations and settlement
+  decisions append-only or auditable.
+- Add private aggregate validation for real exports that compares:
+  - Amex spend outflow vs Monzo Amex payment outflow;
+  - outstanding reimbursable/business balances;
+  - friend/partner/joint amounts owed;
+  - personal spend after allocations.
+
+Validation:
+
+- Unit tests model fake but realistic chains:
+  - income -> Amex charges -> Monzo Amex payment;
+  - friend split expense -> reimbursement;
+  - business Amex expense -> later reimbursement;
+  - partner/joint split -> settlement;
+  - mixed transaction with personal and non-personal portions.
+- Tests prove card payments do not affect personal spend and only allocated personal portions do.
+- Service/API tests prove allocation and settlement decisions are append-only and raw imports remain
+  unchanged.
+- Private validation command reports only aggregates from `storage/` and never row descriptions,
+  names, merchants, account numbers, or transaction IDs.
+
+### Stage 6: Reporting and budgets
 
 Goal: turn reviewed transactions into useful monthly views.
 
@@ -351,19 +414,22 @@ Goal: turn reviewed transactions into useful monthly views.
 - Category spend.
 - Net personal cost.
 - Joint vs personal spend.
+- Business/reimbursable expenses and outstanding balances.
+- Friend/partner amounts owed or settled.
 - Budget remaining.
 - Credit-card liability and settlement status.
 - Review inbox health.
 
 Validation:
 
-- Report unit tests use deterministic fake monthly ledgers and assert exact totals for cashflow,
-  category spend, net personal cost, joint spend, reimbursement handling, and credit-card settlement.
+- Report unit tests use deterministic fake monthly ledgers with allocations/settlements and assert
+  exact totals for cashflow, category spend, net personal cost, joint spend, reimbursement handling,
+  business exclusions, friend/partner balances, and credit-card settlement.
 - Budget tests cover overspend, underspend, zero-activity categories, and month boundaries.
 - API tests verify report endpoints return stable JSON shapes validated with Zod.
 - UI tests verify summary cards/tables render the report values from fake API data.
 
-### Stage 6: Product hardening
+### Stage 7: Product hardening
 
 Goal: make the app safe and pleasant for real local use.
 
@@ -388,7 +454,10 @@ Validation:
 ## Open decisions
 
 - Whether budgets should be envelope-based, category-based, or both.
-- Whether the app should support multiple users/profiles in the schema from the start, even if the
-  UI is single-user.
-- Exact Monzo, Amex, and joint-account CSV shapes once real export headers are available.
-- Whether future review decisions need full append-only event sourcing or a simpler audit table.
+- Whether allocations should initially support both percentage and fixed-amount splits, or fixed
+  amounts first with percentages as UI sugar.
+- Whether counterparties should be first-class records immediately or simple labels until matching
+  needs become clearer.
+- Whether business expenses should be modeled as `business` allocation only or as
+  `reimbursable/business` plus settlement status.
+- Whether budgets should include or exclude reimbursable/business/joint allocations by default.
