@@ -93,7 +93,7 @@ export function parseMonzoTransactionsCsv(
     const date = requireDate(row, "Date");
     const description = requireFirst(row, ["Name", "Description"]);
     const amount = requireValue(row, "Amount");
-    const currency = requireFirst(row, ["Local Currency", "Currency"]);
+    const currency = requireFirst(row, ["Currency", "Local currency"]);
     const sourceId = optionalFirst(row, ["ID", "Transaction ID"]);
 
     if (currency !== "GBP") {
@@ -128,7 +128,7 @@ export function parseAmexTransactionsCsv(
       throw new Error(`Unsupported Amex currency: ${currency}`);
     }
 
-    const amountMinorUnits = decimalStringToMinorUnits(amount);
+    const amountMinorUnits = normalizeAmexAmountMinorUnits(amount);
 
     return {
       id: reference ?? `amex:${index}:${date}`,
@@ -172,9 +172,23 @@ function parseCsvRecords(csv: string): Record<string, string>[] {
 
 function requireDate(row: Record<string, string>, header: string): string {
   const value = requireValue(row, header).slice(0, 10);
-  const parsedDate = z.iso.date().parse(value);
+  const parsedDate = z.iso.date().safeParse(value);
 
-  return parsedDate;
+  if (parsedDate.success) {
+    return parsedDate.data;
+  }
+
+  const ukDate = /^(?<day>\d{2})\/(?<month>\d{2})\/(?<year>\d{4})$/.exec(value);
+
+  if (ukDate?.groups) {
+    return z.iso
+      .date()
+      .parse(
+        `${ukDate.groups.year}-${ukDate.groups.month}-${ukDate.groups.day}`,
+      );
+  }
+
+  throw new Error(`Invalid CSV date: ${value}`);
 }
 
 function parseMonzoMinorUnits(amount: string): MinorUnitAmount {
@@ -187,6 +201,10 @@ function parseMonzoMinorUnits(amount: string): MinorUnitAmount {
   }
 
   return Number.parseInt(amount, 10);
+}
+
+function normalizeAmexAmountMinorUnits(amount: string): MinorUnitAmount {
+  return -decimalStringToMinorUnits(amount);
 }
 
 function requireFirst(
@@ -207,7 +225,7 @@ function optionalFirst(
   headers: readonly string[],
 ): string | undefined {
   for (const header of headers) {
-    const value = row[header];
+    const value = getCsvValue(row, header);
 
     if (value) {
       return value;
@@ -218,13 +236,35 @@ function optionalFirst(
 }
 
 function requireValue(row: Record<string, string>, header: string): string {
-  const value = row[header];
+  const value = getCsvValue(row, header);
 
   if (!value) {
     throw new Error(`Missing required CSV header: ${header}`);
   }
 
   return value;
+}
+
+function getCsvValue(
+  row: Record<string, string>,
+  header: string,
+): string | undefined {
+  const directValue = row[header];
+
+  if (directValue !== undefined) {
+    return directValue;
+  }
+
+  const requestedHeader = normalizeHeader(header);
+  const matchingHeader = Object.keys(row).find(
+    (rowHeader) => normalizeHeader(rowHeader) === requestedHeader,
+  );
+
+  return matchingHeader ? row[matchingHeader] : undefined;
+}
+
+function normalizeHeader(header: string): string {
+  return header.trim().toLowerCase();
 }
 
 function parseCsvLine(line: string): string[] {

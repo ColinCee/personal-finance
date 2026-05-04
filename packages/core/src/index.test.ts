@@ -152,22 +152,91 @@ describe("bank imports", () => {
     ]);
   });
 
-  test("parses Amex CSV rows with decimal amounts", () => {
-    const transactions = parseAmexTransactionsCsv(
+  test("parses current Monzo export headers with decimal major-unit amounts", () => {
+    const transactions = parseMonzoTransactionsCsv(
       [
-        "Date,Description,Amount,Currency,Reference",
-        "2026-05-02,Groceries,-82.40,GBP,amex_1",
+        [
+          "Transaction ID",
+          "Date",
+          "Time",
+          "Type",
+          "Name",
+          "Emoji",
+          "Category",
+          "Amount",
+          "Currency",
+          "Local amount",
+          "Local currency",
+          "Notes and #tags",
+          "Address",
+          "Receipt",
+          "Description",
+          "Category split",
+          "Money Out",
+          "Money In",
+        ].join(","),
+        [
+          "tx_1",
+          "02/05/2026",
+          "12:34:56",
+          "Card payment",
+          "Groceries",
+          "",
+          "Shopping",
+          "-82.40",
+          "GBP",
+          "-82.40",
+          "GBP",
+          "",
+          "",
+          "",
+          "Groceries",
+          "",
+          "82.40",
+          "",
+        ].join(","),
       ].join("\n"),
     );
 
     expect(transactions).toEqual([
       {
-        id: "amex_1",
+        id: "tx_1",
         postedOn: "2026-05-02",
         description: "Groceries",
         amountMinorUnits: -8240,
         currency: "GBP",
         kind: "spend",
+        source: "monzo",
+      },
+    ]);
+  });
+
+  test("parses current Amex export headers with charge-positive amounts", () => {
+    const transactions = parseAmexTransactionsCsv(
+      [
+        "Date,Description,Card Member,Account #,Amount",
+        "02/05/2026,Groceries,Example Person,00000,82.40",
+        "03/05/2026,Refund,Example Person,00000,-25.00",
+      ].join("\n"),
+    );
+
+    expect(transactions).toEqual([
+      {
+        id: "amex:0:2026-05-02",
+        postedOn: "2026-05-02",
+        description: "Groceries",
+        amountMinorUnits: -8240,
+        currency: "GBP",
+        kind: "spend",
+        source: "amex",
+      },
+      {
+        id: "amex:1:2026-05-03",
+        postedOn: "2026-05-03",
+        description: "Refund",
+        amountMinorUnits: 2500,
+        currency: "GBP",
+        kind: "reimbursement",
         source: "amex",
       },
     ]);
