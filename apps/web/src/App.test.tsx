@@ -28,6 +28,18 @@ const fakeTransactions = [
     reviewStatus: "needs_review",
     affectsPersonalSpend: true,
   },
+  {
+    id: "txn_fake_3",
+    postedOn: "2026-05-04",
+    description: "Coffee",
+    amountMinorUnits: -350,
+    currency: "GBP",
+    kind: "spend",
+    source: "fake-monzo",
+    reviewItemId: null,
+    reviewStatus: "confirmed",
+    affectsPersonalSpend: true,
+  },
 ];
 
 const fakeMonthlyReports = [
@@ -145,17 +157,17 @@ beforeEach(() => {
       return {
         ok: true,
         json: async () => ({
-          source: "fixture_csv",
-          originalFileName: "transactions.csv",
+          source: "monzo_csv",
+          originalFileName: "monzo.csv",
           fileSha256: "hash",
-          rowCount: 4,
+          rowCount: 10,
           duplicateRowCount: 0,
           alreadyImported: false,
           dateRange: {
             from: "2026-05-01",
             to: "2026-05-04",
           },
-          reviewItemCount: 0,
+          reviewItemCount: 3,
           moneyInMinorUnits: 302500,
           moneyOutMinorUnits: 16480,
           netAmountMinorUnits: 286020,
@@ -167,17 +179,17 @@ beforeEach(() => {
       return {
         ok: true,
         json: async () => ({
-          source: "fixture_csv",
-          originalFileName: "transactions.csv",
+          source: "monzo_csv",
+          originalFileName: "monzo.csv",
           fileSha256: "hash",
-          rowCount: 4,
+          rowCount: 10,
           duplicateRowCount: 0,
           alreadyImported: false,
           dateRange: {
             from: "2026-05-01",
             to: "2026-05-04",
           },
-          reviewItemCount: 0,
+          reviewItemCount: 3,
           moneyInMinorUnits: 302500,
           moneyOutMinorUnits: 16480,
           netAmountMinorUnits: 286020,
@@ -222,8 +234,11 @@ test("submits a review decision from the inbox", async () => {
   window.history.pushState({}, "", "/review");
   render(<App />);
 
+  expect(await screen.findByText("Amex payment")).toBeInTheDocument();
+  expect(screen.queryByText("Coffee")).not.toBeInTheDocument();
+
   fireEvent.click(
-    await screen.findByRole("button", {
+    screen.getByRole("button", {
       name: "Confirm credit-card payment",
     }),
   );
@@ -254,15 +269,14 @@ test("previews and commits a CSV import", async () => {
     await screen.findByRole("heading", { name: "Import workspace" }),
   ).toBeInTheDocument();
 
-  fireEvent.change(await screen.findByLabelText("Source"), {
-    target: { value: "fixture_csv" },
-  });
   fireEvent.change(screen.getByLabelText(/Choose a CSV file/), {
     target: {
       files: [
         new File(
-          ["posted_on,description,amount,currency,kind,source"],
-          "transactions.csv",
+          [
+            "Transaction ID,Date,Time,Type,Name,Amount,Currency,Local currency,Money Out,Money In",
+          ],
+          "monzo.csv",
           {
             type: "text/csv",
           },
@@ -270,12 +284,22 @@ test("previews and commits a CSV import", async () => {
       ],
     },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Preview import" }));
+  fireEvent.click(screen.getByRole("button", { name: "Analyze CSV" }));
 
-  expect(await screen.findByText("Ready")).toBeInTheDocument();
-  expect(await screen.findAllByText("4")).not.toHaveLength(0);
+  expect(await screen.findByText("Detected Monzo CSV")).toBeInTheDocument();
+  expect(
+    await screen.findByText("3 rows will need review"),
+  ).toBeInTheDocument();
+  await waitFor(() => {
+    const previewCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/api/imports/preview" && init?.method === "POST",
+    );
 
-  fireEvent.click(screen.getByRole("button", { name: "Commit import" }));
+    expect((previewCall?.[1]?.body as FormData).get("source")).toBeNull();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "Import to ledger" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(

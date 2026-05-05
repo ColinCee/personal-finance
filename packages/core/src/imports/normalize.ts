@@ -5,7 +5,7 @@ import { entryKinds } from "../transactions/kinds";
 import { importSources } from "./source";
 import type { Currency, MinorUnitAmount } from "../money/amount";
 import type { EntryKind } from "../transactions/kinds";
-import type { ImportSource } from "./source";
+import type { FileImportSource, ImportSource } from "./source";
 
 export type NormalizedTransactionInput = {
   id: string;
@@ -37,6 +37,41 @@ const fixtureCsvHeaders = [
 ] as const;
 
 type FixtureCsvHeader = (typeof fixtureCsvHeaders)[number];
+
+export function detectFileImportSource(csv: string): FileImportSource {
+  const headerLine = firstCsvHeaderLine(csv);
+  const headers = new Set(parseCsvLine(headerLine).map(normalizeHeader));
+
+  if (hasAllHeaders(headers, fixtureCsvHeaders)) {
+    return "fixture_csv";
+  }
+
+  if (
+    hasAllHeaders(headers, ["date", "description", "amount"]) &&
+    (headers.has("card member") ||
+      headers.has("account #") ||
+      headers.has("reference"))
+  ) {
+    return "amex_csv";
+  }
+
+  if (
+    headers.has("date") &&
+    headers.has("amount") &&
+    (headers.has("name") || headers.has("description")) &&
+    (headers.has("transaction id") ||
+      headers.has("id") ||
+      headers.has("local currency") ||
+      headers.has("money out") ||
+      headers.has("money in"))
+  ) {
+    return "monzo_csv";
+  }
+
+  throw new Error(
+    "Unsupported CSV format. Expected a Monzo, Amex, or fixture export.",
+  );
+}
 
 export function parseFixtureTransactionsCsv(
   csv: string,
@@ -268,7 +303,29 @@ function getCsvValue(
 }
 
 function normalizeHeader(header: string): string {
-  return header.trim().toLowerCase();
+  return header
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function firstCsvHeaderLine(csv: string): string {
+  const headerLine = csv.split(/\r?\n/).find((line) => line.trim().length > 0);
+
+  if (!headerLine) {
+    throw new Error("CSV is empty");
+  }
+
+  return headerLine;
+}
+
+function hasAllHeaders(
+  headers: ReadonlySet<string>,
+  requiredHeaders: readonly string[],
+) {
+  return requiredHeaders.every((header) =>
+    headers.has(normalizeHeader(header)),
+  );
 }
 
 function parseCsvLine(line: string): string[] {

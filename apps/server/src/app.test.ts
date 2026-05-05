@@ -105,7 +105,6 @@ describe("app", () => {
         body: csvImportFormData({
           csv: fixtureCsv,
           fileName: "transactions.csv",
-          source: "fixture_csv",
         }),
       });
 
@@ -138,7 +137,6 @@ describe("app", () => {
         body: csvImportFormData({
           csv: fixtureCsv,
           fileName: "transactions.csv",
-          source: "fixture_csv",
         }),
       });
 
@@ -184,7 +182,6 @@ describe("app", () => {
         body: csvImportFormData({
           csv: fixtureCsv,
           fileName: "transactions.csv",
-          source: "fixture_csv",
         }),
       });
       const previewResponse = await app.request("/api/imports/preview", {
@@ -192,7 +189,6 @@ describe("app", () => {
         body: csvImportFormData({
           csv: fixtureCsv,
           fileName: "transactions.csv",
-          source: "fixture_csv",
         }),
       });
 
@@ -809,11 +805,13 @@ function seedAppReviewFixture(
 function csvImportFormData(input: {
   csv: string;
   fileName: string;
-  source: string;
+  source?: string;
 }) {
   const form = new FormData();
 
-  form.set("source", input.source);
+  if (input.source) {
+    form.set("source", input.source);
+  }
   form.set("file", new File([input.csv], input.fileName, { type: "text/csv" }));
 
   return form;

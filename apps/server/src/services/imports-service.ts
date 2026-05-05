@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 
 import {
   classifyTransaction,
+  detectFileImportSource,
   type FileImportSource,
-  fileImportSources,
   type NormalizedTransactionInput,
   parseAmexTransactionsCsv,
   parseFixtureTransactionsCsv,
@@ -51,7 +51,7 @@ export type ImportsService = {
 export type CsvImportInput = {
   csv: string;
   originalFileName: string;
-  source: FileImportSource;
+  source?: FileImportSource;
 };
 
 export function createImportsService(
@@ -67,7 +67,7 @@ export function createImportsService(
         importId: parsedImport.importId,
         fileSha256: parsedImport.fileSha256,
         originalFileName: input.originalFileName,
-        source: input.source,
+        source: parsedImport.source,
         transactions: parsedImport.transactions,
       });
 
@@ -109,19 +109,16 @@ type ParsedCsvImport = {
 };
 
 function parseCsvImport(input: CsvImportInput): ParsedCsvImport {
-  if (!fileImportSources.includes(input.source)) {
-    throw new Error(`Unsupported import source: ${input.source}`);
-  }
-
+  const source = input.source ?? detectFileImportSource(input.csv);
   const fileSha256 = sha256(input.csv);
-  const importId = `import_${input.source}_${fileSha256.slice(0, 16)}`;
+  const importId = `import_${source}_${fileSha256.slice(0, 16)}`;
 
   return {
     importId,
     fileSha256,
     originalFileName: input.originalFileName,
-    source: input.source,
-    transactions: parseTransactions(input.source, input.csv),
+    source,
+    transactions: parseTransactions(source, input.csv),
   };
 }
 

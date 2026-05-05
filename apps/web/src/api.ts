@@ -100,7 +100,7 @@ export type ImportHistoryItem = z.infer<typeof importHistoryItemSchema>;
 
 export type CsvImportRequest = {
   file: File;
-  source: FileImportSource;
+  source?: FileImportSource;
 };
 
 const reviewDecisionSchema = z.object({
@@ -277,7 +277,9 @@ export async function submitAllocationDecision(
 function csvImportFormData(request: CsvImportRequest) {
   const form = new FormData();
 
-  form.set("source", request.source);
+  if (request.source) {
+    form.set("source", request.source);
+  }
   form.set("file", request.file);
 
   return form;

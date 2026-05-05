@@ -16,7 +16,6 @@ import {
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-import { fileImportSources } from "@personal-finance/core";
 import type {
   AllocationPurpose,
   EntryKind,
@@ -208,16 +207,20 @@ function ImportWorkspace() {
     queryFn: fetchImportHistory,
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [source, setSource] = useState<FileImportSource>("fixture_csv");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [importCommitted, setImportCommitted] = useState(false);
   const previewMutation = useMutation({
     mutationFn: previewCsvImport,
-    onSuccess: (nextPreview) => setPreview(nextPreview),
+    onSuccess: (nextPreview) => {
+      setPreview(nextPreview);
+      setImportCommitted(false);
+    },
   });
   const commitMutation = useMutation({
     mutationFn: commitCsvImport,
     onSuccess: (result) => {
       setPreview(result);
+      setImportCommitted(result.imported);
       void queryClient.invalidateQueries({ queryKey: ["import-history"] });
       void queryClient.invalidateQueries({ queryKey: ["transactions"] });
       void queryClient.invalidateQueries({ queryKey: ["monthly-reports"] });
@@ -225,7 +228,7 @@ function ImportWorkspace() {
   });
 
   function currentRequest(): CsvImportRequest | null {
-    return selectedFile ? { file: selectedFile, source } : null;
+    return selectedFile ? { file: selectedFile } : null;
   }
 
   function previewCurrentImport() {
@@ -233,6 +236,14 @@ function ImportWorkspace() {
 
     if (request) {
       previewMutation.mutate(request);
+    }
+  }
+
+  function commitCurrentImport() {
+    const request = currentRequest();
+
+    if (request) {
+      commitMutation.mutate(request);
     }
   }
 
@@ -245,7 +256,7 @@ function ImportWorkspace() {
             <span className="status-pill muted">Preview first</span>
           </div>
         }
-        description="Upload a bank export, inspect aggregate-only metadata, then commit it into the auditable local ledger."
+        description="Drop in a bank export, let the app detect the format, then import only after seeing what will need review."
         eyebrow="Imports"
         title="Import workspace"
       />
@@ -261,30 +272,13 @@ function ImportWorkspace() {
           <div className="panel-header compact">
             <div>
               <p className="eyebrow">Upload</p>
-              <h2>Preview a CSV</h2>
+              <h2>Analyze a CSV</h2>
               <p>
-                Preview returns counts, date range, duplicate status, and money
-                totals before anything is persisted.
+                Monzo, Amex, and fixture exports are detected from the file
+                headers. Nothing is written until you import.
               </p>
             </div>
           </div>
-
-          <label className="field">
-            <span>Source</span>
-            <select
-              onChange={(event) => {
-                setSource(event.target.value as FileImportSource);
-                setPreview(null);
-              }}
-              value={source}
-            >
-              {fileImportSources.map((importSource) => (
-                <option key={importSource} value={importSource}>
-                  {formatFileImportSource(importSource)}
-                </option>
-              ))}
-            </select>
-          </label>
 
           <label className="file-drop">
             <span>
@@ -299,6 +293,9 @@ function ImportWorkspace() {
               onChange={(event) => {
                 setSelectedFile(event.target.files?.[0] ?? null);
                 setPreview(null);
+                setImportCommitted(false);
+                previewMutation.reset();
+                commitMutation.reset();
               }}
               type="file"
             />
@@ -307,29 +304,14 @@ function ImportWorkspace() {
           <div className="import-actions">
             <Button
               disabled={!selectedFile || previewMutation.isPending}
-              onClick={previewCurrentImport}
-              type="button"
+              type="submit"
+              variant={preview ? "secondary" : "default"}
             >
-              {previewMutation.isPending ? "Previewing..." : "Preview import"}
-            </Button>
-            <Button
-              disabled={
-                !selectedFile ||
-                !preview ||
-                commitMutation.isPending ||
-                preview.alreadyImported
-              }
-              onClick={() => {
-                const request = currentRequest();
-
-                if (request) {
-                  commitMutation.mutate(request);
-                }
-              }}
-              type="button"
-              variant="secondary"
-            >
-              {commitMutation.isPending ? "Importing..." : "Commit import"}
+              {previewMutation.isPending
+                ? "Analyzing..."
+                : preview
+                  ? "Analyze again"
+                  : "Analyze CSV"}
             </Button>
           </div>
 
@@ -340,7 +322,12 @@ function ImportWorkspace() {
           ) : null}
         </form>
 
-        <ImportPreviewPanel preview={preview} />
+        <ImportPreviewPanel
+          importCommitted={importCommitted}
+          isImporting={commitMutation.isPending}
+          onCommit={commitCurrentImport}
+          preview={preview}
+        />
       </section>
 
       <ImportHistoryPanel
@@ -365,7 +352,11 @@ function ReviewInbox() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["transactions"] }),
   });
-  const rows = transactions.data ?? [];
+  const allRows = transactions.data ?? [];
+  const rows = allRows.filter(
+    (transaction) =>
+      transaction.reviewStatus === "needs_review" && transaction.reviewItemId,
+  );
   const pendingReviewItemId =
     reviewDecision.isPending || allocationDecision.isPending
       ? (reviewDecision.variables?.reviewItemId ??
@@ -385,8 +376,10 @@ function ReviewInbox() {
       <PageHeader
         aside={
           <div className="page-actions">
-            <span className="status-pill">{rows.length} rows</span>
-            <span className="status-pill muted">Needs review</span>
+            <span className="status-pill">{rows.length} need action</span>
+            <span className="status-pill muted">
+              {allRows.length} ledger rows
+            </span>
           </div>
         }
         description="Confirm uncertain imports before they affect your economic reports."
@@ -415,15 +408,14 @@ function ReviewInbox() {
         {rows.length === 0 ? (
           <div className="empty-state">
             <strong>Nothing needs review.</strong>
-            <span>Import fake fixture data to populate this queue.</span>
+            <span>Confirmed and auto-filed rows stay out of this queue.</span>
           </div>
         ) : (
           <table>
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Description</th>
-                <th>Detected kind</th>
+                <th>Transaction</th>
                 <th>Amount</th>
                 <th>Impact</th>
                 <th>Decision</th>
@@ -440,13 +432,11 @@ function ReviewInbox() {
                   <td>
                     <div className="transaction-copy">
                       <strong>{transaction.description}</strong>
-                      <span>{transaction.source}</span>
+                      <span>
+                        Detected as {formatEntryKind(transaction.kind)} ·{" "}
+                        {transaction.source}
+                      </span>
                     </div>
-                  </td>
-                  <td>
-                    <span className="kind-pill">
-                      {formatEntryKind(transaction.kind)}
-                    </span>
                   </td>
                   <td className="amount-cell">
                     {formatCurrencyFromMinorUnits(transaction.amountMinorUnits)}
@@ -518,55 +508,92 @@ function PageHeader(props: {
   );
 }
 
-function ImportPreviewPanel(props: { preview: ImportPreview | null }) {
+function ImportPreviewPanel(props: {
+  importCommitted: boolean;
+  isImporting: boolean;
+  onCommit: () => void;
+  preview: ImportPreview | null;
+}) {
   if (!props.preview) {
     return (
       <section className="panel import-preview-panel">
         <div className="empty-state">
-          <strong>No preview yet.</strong>
-          <span>Select a source and CSV to inspect safe import metadata.</span>
+          <strong>Waiting for a file.</strong>
+          <span>
+            Choose a CSV and the app will detect the bank before showing the
+            import decision.
+          </span>
         </div>
       </section>
     );
   }
 
+  const autoFiledCount = props.preview.rowCount - props.preview.reviewItemCount;
+
   return (
     <section className="panel import-preview-panel">
       <div className="panel-header compact">
         <div>
-          <p className="eyebrow">Preview</p>
-          <h2>
-            {props.preview.alreadyImported ? "Already imported" : "Ready"}
-          </h2>
+          <p className="eyebrow">
+            Detected {formatFileImportSource(props.preview.source)}
+          </p>
+          <h2>{importPreviewTitle(props.preview, props.importCommitted)}</h2>
           <p>
             {props.preview.originalFileName} ·{" "}
-            {formatFileImportSource(props.preview.source)}
+            {formatDateRange(props.preview.dateRange)}
           </p>
         </div>
       </div>
 
-      <div className="preview-grid">
-        <SummaryCard label="Rows" value={props.preview.rowCount.toString()} />
-        <SummaryCard
-          label="Duplicates"
-          value={props.preview.duplicateRowCount.toString()}
-          hint={
-            props.preview.alreadyImported ? "Same file hash exists" : "None"
-          }
-        />
-        <SummaryCard
-          label="Review"
-          value={`${props.preview.reviewItemCount} items`}
-          hint="Will need confirmation"
-        />
-        <SummaryCard
-          label="Net"
-          value={formatCurrencyFromMinorUnits(
-            props.preview.netAmountMinorUnits,
-          )}
-          hint={`${formatDateRange(props.preview.dateRange)} period`}
-        />
+      <div className="import-decision-card">
+        <span className="decision-count">
+          {props.preview.alreadyImported
+            ? props.preview.duplicateRowCount
+            : props.preview.reviewItemCount}
+        </span>
+        <div>
+          <h3>
+            {importPreviewDecisionHeading(props.preview, props.importCommitted)}
+          </h3>
+          <p>
+            {importPreviewDecisionCopy(
+              props.preview,
+              autoFiledCount,
+              props.importCommitted,
+            )}
+          </p>
+        </div>
+        {!props.preview.alreadyImported && !props.importCommitted ? (
+          <Button
+            disabled={props.isImporting}
+            onClick={props.onCommit}
+            type="button"
+          >
+            {props.isImporting ? "Importing..." : "Import to ledger"}
+          </Button>
+        ) : null}
       </div>
+
+      <dl className="import-facts">
+        <div>
+          <dt>Total rows</dt>
+          <dd>{props.preview.rowCount}</dd>
+        </div>
+        <div>
+          <dt>Auto-filed</dt>
+          <dd>{autoFiledCount}</dd>
+        </div>
+        <div>
+          <dt>Net cashflow</dt>
+          <dd>
+            {formatCurrencyFromMinorUnits(props.preview.netAmountMinorUnits)}
+          </dd>
+        </div>
+        <div>
+          <dt>Duplicates</dt>
+          <dd>{props.preview.duplicateRowCount}</dd>
+        </div>
+      </dl>
     </section>
   );
 }
@@ -625,7 +652,7 @@ function ImportHistoryPanel(props: {
                 <td>{item.rowCount}</td>
                 <td>{formatTimestamp(item.importedAt)}</td>
                 <td>
-                  <span className="kind-pill">{item.status}</span>
+                  <span className="resolved-label">{item.status}</span>
                 </td>
               </tr>
             ))}
@@ -835,6 +862,63 @@ function formatDateRange(range: { from: string | null; to: string | null }) {
   }
 
   return `${range.from} to ${range.to}`;
+}
+
+function importPreviewTitle(preview: ImportPreview, importCommitted: boolean) {
+  if (importCommitted) {
+    return "Imported to ledger";
+  }
+
+  if (preview.alreadyImported) {
+    return "This file is already imported";
+  }
+
+  if (preview.reviewItemCount === 0) {
+    return "Ready to import";
+  }
+
+  return `${preview.reviewItemCount} row${preview.reviewItemCount === 1 ? "" : "s"} will need review`;
+}
+
+function importPreviewDecisionHeading(
+  preview: ImportPreview,
+  importCommitted: boolean,
+) {
+  if (importCommitted) {
+    return "Import complete";
+  }
+
+  if (preview.alreadyImported) {
+    return "Duplicate file";
+  }
+
+  if (preview.reviewItemCount === 0) {
+    return "No action needed after import";
+  }
+
+  return "Review queue impact";
+}
+
+function importPreviewDecisionCopy(
+  preview: ImportPreview,
+  autoFiledCount: number,
+  importCommitted: boolean,
+) {
+  if (importCommitted) {
+    return preview.reviewItemCount === 0
+      ? "The ledger is up to date and no rows were added to Review."
+      : `${preview.reviewItemCount} rows are now waiting in Review. The other ${autoFiledCount} rows were filed automatically.`;
+  }
+
+  if (preview.alreadyImported) {
+    return "The same source and file hash already exist, so importing it again is disabled.";
+  }
+
+  if (preview.reviewItemCount === 0) {
+    return `All ${preview.rowCount} rows look classifiable. They will be added to the ledger without appearing in the review queue.`;
+  }
+
+  return `${preview.reviewItemCount} rows will appear in Review. The other ${autoFiledCount} rows will be filed automatically.`;
 }
 
 function formatFileImportSource(source: FileImportSource) {

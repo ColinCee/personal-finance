@@ -32,7 +32,6 @@ describe("imports service", () => {
       const preview = importsService.previewCsvImport({
         csv: fixtureCsv,
         originalFileName: "transactions.csv",
-        source: "fixture_csv",
       });
 
       expect(preview).toMatchObject({
@@ -53,6 +52,32 @@ describe("imports service", () => {
       expect(tableCount(testDatabase.db, importedFiles)).toBe(0);
       expect(tableCount(testDatabase.db, rawTransactions)).toBe(0);
       expect(tableCount(testDatabase.db, ledgerEntries)).toBe(0);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("auto-detects bank CSV sources during preview", () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      const importsService = createImportsService(
+        createImportsRepository(testDatabase.db),
+      );
+
+      const preview = importsService.previewCsvImport({
+        csv: [
+          "Transaction ID,Date,Time,Type,Name,Amount,Currency,Local currency,Money Out,Money In",
+          "tx_1,02/05/2026,12:34:56,Card payment,Groceries,-82.40,GBP,GBP,82.40,",
+        ].join("\n"),
+        originalFileName: "monzo.csv",
+      });
+
+      expect(preview).toMatchObject({
+        source: "monzo_csv",
+        rowCount: 1,
+        moneyOutMinorUnits: 8240,
+      });
     } finally {
       testDatabase.cleanup();
     }
@@ -126,7 +151,6 @@ describe("imports service", () => {
         importsService.previewCsvImport({
           csv: fixtureCsv,
           originalFileName: "transactions.csv",
-          source: "fixture_csv",
         }),
       ).toMatchObject({
         alreadyImported: true,

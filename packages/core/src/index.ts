@@ -19,6 +19,7 @@ export type {
   SettlementType,
 } from "./allocations/economic-allocation";
 export {
+  detectFileImportSource,
   parseAmexTransactionsCsv,
   parseFixtureTransactionsCsv,
   parseMonzoTransactionsCsv,

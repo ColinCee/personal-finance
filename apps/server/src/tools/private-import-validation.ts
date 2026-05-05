@@ -12,7 +12,6 @@ import type {
   ClassificationConfidence,
   ClassificationReason,
   EntryKind,
-  FileImportSource,
   NormalizedTransactionInput,
   TransactionClassification,
 } from "@personal-finance/core";
@@ -247,7 +246,7 @@ function summarizeFile(
       transactions,
       (transaction) => transaction.classification.confidence,
     ),
-    importPreview: previewPrivateImport(csv, source, index),
+    importPreview: previewPrivateImport(csv, index),
     monthly: summarizeMonthly(transactions),
     transactions,
   };
@@ -255,7 +254,6 @@ function summarizeFile(
 
 function previewPrivateImport(
   csv: string,
-  source: ImportSourceKind,
   index: number,
 ): PrivateImportPreviewSummary {
   const connection = createDatabaseConnection(":memory:");
@@ -267,7 +265,6 @@ function previewPrivateImport(
     ).previewCsvImport({
       csv,
       originalFileName: `storage_csv_${index + 1}.csv`,
-      source: fileImportSourceForPrivateSource(source),
     });
 
     return {
@@ -282,12 +279,6 @@ function previewPrivateImport(
   } finally {
     connection.close();
   }
-}
-
-function fileImportSourceForPrivateSource(
-  source: ImportSourceKind,
-): FileImportSource {
-  return source === "amex" ? "amex_csv" : "monzo_csv";
 }
 
 function summarizeTransactions(transactions: readonly ClassifiedTransaction[]) {

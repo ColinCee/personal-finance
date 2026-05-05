@@ -300,30 +300,10 @@ a {
   min-height: 100%;
 }
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 20px;
-}
-
-.field span,
 .file-drop span {
   color: #f1fbf8;
   font-size: 0.9rem;
   font-weight: 760;
-}
-
-.field select {
-  appearance: none;
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 7%), rgb(255 255 255 / 3%)),
-    rgb(10 16 23 / 82%);
-  border: 1px solid rgb(255 255 255 / 12%);
-  border-radius: 16px;
-  color: #f7fffc;
-  font: inherit;
-  padding: 12px 14px;
 }
 
 .file-drop {
@@ -338,7 +318,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 20px;
   padding: 22px;
 }
 
@@ -359,11 +339,77 @@ a {
   margin-top: 18px;
 }
 
-.preview-grid {
+.import-decision-card {
+  align-items: center;
+  background:
+    radial-gradient(circle at 8% 18%, rgb(112 240 223 / 18%), transparent 36%),
+    linear-gradient(135deg, rgb(255 255 255 / 8%), rgb(255 255 255 / 3%));
+  border: 1px solid rgb(112 240 223 / 18%);
+  border-radius: 24px;
   display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   margin-top: 20px;
+  padding: 18px;
+}
+
+.decision-count {
+  align-items: center;
+  background: linear-gradient(135deg, #70f0df, #b7ff5f);
+  border-radius: 18px;
+  color: #071014;
+  display: inline-flex;
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 820;
+  height: 66px;
+  justify-content: center;
+  letter-spacing: -0.05em;
+  min-width: 66px;
+}
+
+.import-decision-card h3 {
+  color: #f7fffc;
+  font-size: 1.05rem;
+  font-weight: 780;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.import-decision-card p {
+  color: #9fb0b4;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+.import-facts {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 16px 0 0;
+}
+
+.import-facts div {
+  background: rgb(255 255 255 / 4%);
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.import-facts dt {
+  color: #7f929a;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.import-facts dd {
+  color: #f7fffc;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 760;
+  margin: 6px 0 0;
 }
 
 .card,
@@ -465,15 +511,6 @@ a {
 
 .panel-header.compact h2 {
   font-size: clamp(1.35rem, 2vw, 1.85rem);
-}
-
-.preview-grid .card {
-  min-height: 108px;
-  padding: 18px;
-}
-
-.preview-grid .card strong {
-  font-size: 1.7rem;
 }
 
 .queue-meter {
@@ -592,18 +629,6 @@ th {
   padding: 6px 10px;
 }
 
-.kind-pill {
-  background: rgb(45 212 191 / 10%);
-  border: 1px solid rgb(45 212 191 / 18%);
-  border-radius: 999px;
-  color: #a7fff2;
-  display: inline-flex;
-  font-size: 0.82rem;
-  font-weight: 750;
-  padding: 5px 10px;
-  white-space: nowrap;
-}
-
 .amount-cell {
   color: #f7fffc;
   font-variant-numeric: tabular-nums;
@@ -661,8 +686,15 @@ button:not(:disabled),
     width: fit-content;
   }
 
-  .preview-grid {
+  .import-decision-card,
+  .import-facts {
     grid-template-columns: 1fr;
+  }
+
+  .decision-count {
+    height: 54px;
+    min-width: 54px;
+    width: fit-content;
   }
 }
 

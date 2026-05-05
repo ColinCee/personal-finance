@@ -9,6 +9,7 @@ import {
   calculateMonthlyReports,
   calculateNetPersonalSpendMinorUnits,
   classifyTransaction,
+  detectFileImportSource,
   type EntryKind,
   type EconomicAllocation,
   exampleTransactions,
@@ -577,6 +578,33 @@ describe("fixture imports", () => {
 });
 
 describe("bank imports", () => {
+  test("detects supported CSV import sources from headers", () => {
+    expect(
+      detectFileImportSource(
+        [
+          "posted_on,description,amount,currency,kind,source",
+          "2026-05-02,Groceries,-82.40,GBP,spend,fake-amex",
+        ].join("\n"),
+      ),
+    ).toBe("fixture_csv");
+    expect(
+      detectFileImportSource(
+        [
+          "\uFEFFTransaction ID,Date,Time,Type,Name,Amount,Currency,Local currency,Money Out,Money In",
+          "tx_1,02/05/2026,12:34:56,Card payment,Groceries,-82.40,GBP,GBP,82.40,",
+        ].join("\n"),
+      ),
+    ).toBe("monzo_csv");
+    expect(
+      detectFileImportSource(
+        [
+          "Date,Description,Card Member,Account #,Amount",
+          "02/05/2026,Groceries,Example Person,00000,82.40",
+        ].join("\n"),
+      ),
+    ).toBe("amex_csv");
+  });
+
   test("parses Monzo CSV rows with pence amounts", () => {
     const transactions = parseMonzoTransactionsCsv(
       [

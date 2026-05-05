@@ -54,10 +54,14 @@ export function createImportsRoutes(importsService: ImportsService) {
 
 async function parseCsvImportForm(request: Request) {
   const form = await request.formData();
-  const source = importSourceSchema.safeParse(form.get("source"));
+  const sourceValue = form.get("source");
+  const source =
+    typeof sourceValue === "string" && sourceValue.length > 0
+      ? importSourceSchema.safeParse(sourceValue)
+      : null;
   const file = form.get("file");
 
-  if (!source.success) {
+  if (source && !source.success) {
     return { success: false as const, error: "Invalid import source." };
   }
 
@@ -74,7 +78,7 @@ async function parseCsvImportForm(request: Request) {
     data: {
       csv: await file.text(),
       originalFileName: file.name || "uploaded.csv",
-      source: source.data,
+      source: source?.data,
     },
   };
 }
