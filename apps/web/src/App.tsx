@@ -76,17 +76,17 @@ function RootLayout() {
   return (
     <main className="shell">
       <header className="hero">
-        <div className="hero-copy">
+        <div className="hero-title-block">
           <p className="eyebrow">Local-first finance workspace</p>
+          <h1>Personal Finance</h1>
           <p className="hero-summary">
             Import bank exports, review uncertain transactions, and separate
             real spending from transfers, Amex payments, reimbursements, and
             joint-account settlements.
           </p>
-          <span className="data-badge">Fake data only</span>
         </div>
-        <div className="hero-title-block">
-          <h1>Personal Finance</h1>
+        <div className="hero-copy">
+          <span className="data-badge">Fake data only</span>
           <nav aria-label="Primary" className="hero-nav">
             <Button asChild className="nav-pill" size="lg" variant="outline">
               <Link to="/">Dashboard</Link>
