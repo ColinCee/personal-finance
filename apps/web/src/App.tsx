@@ -13,6 +13,7 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { useState } from "react";
 
 import type { AllocationPurpose, EntryKind } from "@personal-finance/core";
@@ -75,26 +76,42 @@ export function App() {
 function RootLayout() {
   return (
     <main className="shell">
-      <header className="hero">
-        <div className="hero-title-block">
-          <p className="eyebrow">Local-first finance workspace</p>
-          <h1>Personal Finance</h1>
-          <p className="hero-summary">
-            Import bank exports, review uncertain transactions, and separate
-            real spending from transfers, Amex payments, reimbursements, and
-            joint-account settlements.
-          </p>
-        </div>
-        <div className="hero-copy">
-          <span className="data-badge">Fake data only</span>
-          <nav aria-label="Primary" className="hero-nav">
-            <Button asChild className="nav-pill" size="lg" variant="outline">
-              <Link to="/">Dashboard</Link>
-            </Button>
-            <Button asChild className="nav-pill" size="lg" variant="outline">
-              <Link to="/review">Review inbox</Link>
-            </Button>
-          </nav>
+      <header className="app-chrome">
+        <Link
+          aria-label="Personal Finance dashboard"
+          className="brand-lockup"
+          to="/"
+        >
+          <span aria-hidden="true" className="brand-mark">
+            PF
+          </span>
+          <span className="brand-copy">
+            <strong>Personal Finance</strong>
+            <span>Local ledger</span>
+          </span>
+        </Link>
+
+        <nav aria-label="Primary" className="app-nav">
+          <Link
+            activeOptions={{ exact: true }}
+            activeProps={{ className: "app-nav-link active" }}
+            inactiveProps={{ className: "app-nav-link" }}
+            to="/"
+          >
+            Dashboard
+          </Link>
+          <Link
+            activeProps={{ className: "app-nav-link active" }}
+            inactiveProps={{ className: "app-nav-link" }}
+            to="/review"
+          >
+            Review
+          </Link>
+        </nav>
+
+        <div className="chrome-status">
+          <span className="status-pill">Fake data</span>
+          <span className="status-pill muted">Local SQLite</span>
         </div>
       </header>
       <Outlet />
@@ -114,6 +131,20 @@ function Dashboard() {
 
   return (
     <div className="dashboard-stack">
+      <PageHeader
+        aside={
+          <div className="page-actions">
+            <span className="status-pill">{reviewItemCount} open reviews</span>
+            <span className="status-pill muted">
+              {latestReport ? formatMonth(latestReport.month) : "No report yet"}
+            </span>
+          </div>
+        }
+        description="A reviewed ledger view that separates real spending from transfers, Amex payments, reimbursements, and joint-account settlements."
+        eyebrow="Dashboard"
+        title="Economic overview"
+      />
+
       <section className="grid">
         <SummaryCard
           label="Review inbox"
@@ -176,109 +207,139 @@ function ReviewInbox() {
   }
 
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <div>
-          <p className="eyebrow">Review queue</p>
-          <h2>Review inbox</h2>
-          <p>
-            The app flags repayments, transfers, reimbursements, and shared
-            settlements before they flow into reports.
+    <div className="review-stack">
+      <PageHeader
+        aside={
+          <div className="page-actions">
+            <span className="status-pill">{rows.length} rows</span>
+            <span className="status-pill muted">Needs review</span>
+          </div>
+        }
+        description="Confirm uncertain imports before they affect your economic reports."
+        eyebrow="Review"
+        title="Review inbox"
+      />
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Decision queue</p>
+            <h2>Flagged transactions</h2>
+            <p>
+              The app flags repayments, transfers, reimbursements, and shared
+              settlements before they flow into reports.
+            </p>
+          </div>
+        </div>
+
+        {reviewDecision.isError || allocationDecision.isError ? (
+          <p className="decision-error" role="alert">
+            {reviewDecision.error?.message ?? allocationDecision.error?.message}
           </p>
-        </div>
-        <div className="queue-meter">
-          <strong>{rows.length}</strong>
-          <span>rows</span>
-        </div>
-      </div>
+        ) : null}
 
-      {reviewDecision.isError || allocationDecision.isError ? (
-        <p className="decision-error" role="alert">
-          {reviewDecision.error?.message ?? allocationDecision.error?.message}
-        </p>
-      ) : null}
-
-      {rows.length === 0 ? (
-        <div className="empty-state">
-          <strong>Nothing needs review.</strong>
-          <span>Import fake fixture data to populate this queue.</span>
-        </div>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Description</th>
-              <th>Detected kind</th>
-              <th>Amount</th>
-              <th>Impact</th>
-              <th>Decision</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((transaction) => (
-              <tr key={transaction.id}>
-                <td>
-                  <time dateTime={transaction.postedOn}>
-                    {transaction.postedOn}
-                  </time>
-                </td>
-                <td>
-                  <div className="transaction-copy">
-                    <strong>{transaction.description}</strong>
-                    <span>{transaction.source}</span>
-                  </div>
-                </td>
-                <td>
-                  <span className="kind-pill">
-                    {formatEntryKind(transaction.kind)}
-                  </span>
-                </td>
-                <td className="amount-cell">
-                  {formatCurrencyFromMinorUnits(transaction.amountMinorUnits)}
-                </td>
-                <td>{impactLabel(transaction)}</td>
-                <td>
-                  <ReviewActions
-                    pending={pendingReviewItemId === transaction.reviewItemId}
-                    transaction={transaction}
-                    onDecision={(decidedKind) => {
-                      if (!transaction.reviewItemId) {
-                        throw new Error(
-                          `Transaction has no review item: ${transaction.id}`,
-                        );
-                      }
-
-                      reviewDecision.mutate({
-                        reviewItemId: transaction.reviewItemId,
-                        decidedKind,
-                        note:
-                          decidedKind === transaction.kind
-                            ? undefined
-                            : `Changed from ${formatEntryKind(transaction.kind)} in the review inbox.`,
-                      });
-                    }}
-                    onAllocationDecision={(allocationChoice) => {
-                      if (!transaction.reviewItemId) {
-                        throw new Error(
-                          `Transaction has no review item: ${transaction.id}`,
-                        );
-                      }
-
-                      allocationDecision.mutate({
-                        reviewItemId: transaction.reviewItemId,
-                        note: allocationChoice.note,
-                        allocations: allocationChoice.allocations,
-                        settlements: allocationChoice.settlements,
-                      });
-                    }}
-                  />
-                </td>
+        {rows.length === 0 ? (
+          <div className="empty-state">
+            <strong>Nothing needs review.</strong>
+            <span>Import fake fixture data to populate this queue.</span>
+          </div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Detected kind</th>
+                <th>Amount</th>
+                <th>Impact</th>
+                <th>Decision</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            </thead>
+            <tbody>
+              {rows.map((transaction) => (
+                <tr key={transaction.id}>
+                  <td>
+                    <time dateTime={transaction.postedOn}>
+                      {transaction.postedOn}
+                    </time>
+                  </td>
+                  <td>
+                    <div className="transaction-copy">
+                      <strong>{transaction.description}</strong>
+                      <span>{transaction.source}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="kind-pill">
+                      {formatEntryKind(transaction.kind)}
+                    </span>
+                  </td>
+                  <td className="amount-cell">
+                    {formatCurrencyFromMinorUnits(transaction.amountMinorUnits)}
+                  </td>
+                  <td>{impactLabel(transaction)}</td>
+                  <td>
+                    <ReviewActions
+                      pending={pendingReviewItemId === transaction.reviewItemId}
+                      transaction={transaction}
+                      onDecision={(decidedKind) => {
+                        if (!transaction.reviewItemId) {
+                          throw new Error(
+                            `Transaction has no review item: ${transaction.id}`,
+                          );
+                        }
+
+                        reviewDecision.mutate({
+                          reviewItemId: transaction.reviewItemId,
+                          decidedKind,
+                          note:
+                            decidedKind === transaction.kind
+                              ? undefined
+                              : `Changed from ${formatEntryKind(transaction.kind)} in the review inbox.`,
+                        });
+                      }}
+                      onAllocationDecision={(allocationChoice) => {
+                        if (!transaction.reviewItemId) {
+                          throw new Error(
+                            `Transaction has no review item: ${transaction.id}`,
+                          );
+                        }
+
+                        allocationDecision.mutate({
+                          reviewItemId: transaction.reviewItemId,
+                          note: allocationChoice.note,
+                          allocations: allocationChoice.allocations,
+                          settlements: allocationChoice.settlements,
+                        });
+                      }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PageHeader(props: {
+  aside?: ReactNode;
+  description: string;
+  eyebrow: string;
+  title: string;
+}) {
+  return (
+    <section className="page-header">
+      <div className="page-header-copy">
+        <p className="eyebrow">{props.eyebrow}</p>
+        <h1>{props.title}</h1>
+        <p>{props.description}</p>
+      </div>
+      {props.aside ? (
+        <div className="page-header-aside">{props.aside}</div>
+      ) : null}
     </section>
   );
 }

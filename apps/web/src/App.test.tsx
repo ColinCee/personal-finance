@@ -144,7 +144,7 @@ test("renders the dashboard", async () => {
   render(<App />);
 
   expect(
-    await screen.findByRole("heading", { name: "Personal Finance" }),
+    await screen.findByRole("heading", { name: "Economic overview" }),
   ).toBeInTheDocument();
   expect(await screen.findByText("2 open")).toBeInTheDocument();
   expect(await screen.findByText("Economic view")).toBeInTheDocument();

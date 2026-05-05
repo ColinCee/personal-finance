@@ -83,99 +83,178 @@ a {
 .shell {
   margin: 0 auto;
   max-width: 1260px;
-  padding: 36px 24px 64px;
+  padding: 24px 24px 64px;
   position: relative;
 }
 
-.hero {
-  align-items: start;
+.app-chrome {
+  align-items: center;
   background:
-    linear-gradient(135deg, rgb(255 255 255 / 7%), rgb(255 255 255 / 2%)),
-    rgb(10 16 23 / 58%);
+    linear-gradient(180deg, rgb(255 255 255 / 7%), rgb(255 255 255 / 3%)),
+    rgb(10 16 23 / 76%);
   border: 1px solid rgb(255 255 255 / 9%);
-  border-radius: 32px;
+  border-radius: 24px;
   box-shadow:
-    0 26px 80px rgb(0 0 0 / 24%),
+    0 22px 70px rgb(0 0 0 / 22%),
     inset 0 1px 0 rgb(255 255 255 / 7%);
   display: grid;
-  gap: clamp(24px, 5vw, 56px);
-  grid-template-columns: minmax(0, 1fr) auto;
-  margin-bottom: 28px;
-  padding: clamp(24px, 4vw, 42px);
-  position: relative;
+  gap: 18px;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr);
+  margin-bottom: 30px;
+  padding: 12px;
 }
 
-.hero-copy,
-.hero-title-block {
+.brand-lockup {
+  align-items: center;
+  border-radius: 18px;
+  display: inline-flex;
+  gap: 12px;
+  justify-self: start;
+  min-width: 0;
+  padding: 6px 10px 6px 6px;
+  text-decoration: none;
+}
+
+.brand-lockup:hover {
+  background: rgb(255 255 255 / 4%);
+}
+
+.brand-mark {
+  align-items: center;
+  background:
+    radial-gradient(circle at 35% 20%, rgb(183 255 95 / 62%), transparent 34%),
+    linear-gradient(135deg, #70f0df, #2563eb);
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgb(45 212 191 / 18%);
+  color: #071014;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  height: 40px;
+  justify-content: center;
+  letter-spacing: -0.04em;
+  width: 40px;
+}
+
+.brand-copy {
   display: flex;
   flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
-.hero-copy {
-  align-items: flex-end;
-  gap: 16px;
-  justify-self: end;
-  padding-top: 4px;
-}
-
-.hero-title-block {
-  align-items: flex-start;
-  gap: 14px;
-  justify-self: stretch;
-  max-width: 760px;
-}
-
-.hero h1 {
+.brand-copy strong {
   color: #f7fffc;
-  font-size: clamp(2.35rem, 5vw, 4.45rem);
+  font-size: 0.98rem;
   font-weight: 760;
-  letter-spacing: -0.035em;
-  line-height: 0.95;
-  margin: 0;
-  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
-.hero-summary {
-  color: #9fb0b4;
-  font-size: 1.02rem;
-  line-height: 1.62;
-  margin: 0;
-  max-width: 620px;
+.brand-copy span {
+  color: #7f929a;
+  font-size: 0.78rem;
+  font-weight: 650;
 }
 
-.data-badge {
-  background: rgb(132 204 22 / 11%);
-  border: 1px solid rgb(190 242 100 / 28%);
+.app-nav {
+  align-items: center;
+  background: rgb(255 255 255 / 4%);
+  border: 1px solid rgb(255 255 255 / 7%);
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 4px;
+  justify-self: center;
+  padding: 4px;
+}
+
+.app-nav-link {
+  border-radius: 999px;
+  color: #94a7ae;
+  font-size: 0.88rem;
+  font-weight: 720;
+  line-height: 1;
+  padding: 10px 14px;
+  text-decoration: none;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.app-nav-link:hover,
+.app-nav-link.active {
+  background: rgb(255 255 255 / 9%);
+  color: #f7fffc;
+}
+
+.chrome-status {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  justify-self: end;
+}
+
+.status-pill {
+  background: rgb(132 204 22 / 10%);
+  border: 1px solid rgb(190 242 100 / 20%);
   border-radius: 999px;
   color: #d9f99d;
   display: inline-flex;
   font-size: 0.72rem;
   font-weight: 800;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.12em;
   line-height: 1;
-  padding: 12px 16px;
+  padding: 9px 11px;
   text-transform: uppercase;
 }
 
-.hero-nav {
+.status-pill.muted {
+  background: rgb(255 255 255 / 4%);
+  border-color: rgb(255 255 255 / 9%);
+  color: #9fb0b4;
+}
+
+.page-header {
+  align-items: center;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 14px;
+}
+
+.page-header-copy {
+  max-width: 720px;
+}
+
+.page-header h1 {
+  color: #f7fffc;
+  font-size: clamp(1.95rem, 3.25vw, 2.95rem);
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  margin: 4px 0 0;
+}
+
+.page-header p {
+  color: #9fb0b4;
+  font-size: 0.96rem;
+  line-height: 1.55;
+  margin: 8px 0 0;
+  max-width: 600px;
+}
+
+.page-header-aside {
+  justify-self: end;
+}
+
+.page-actions {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
+  gap: 8px;
   justify-content: flex-end;
-  gap: 12px;
-}
-
-.nav-pill {
-  background: rgb(255 255 255 / 4%);
-  border-color: rgb(255 255 255 / 12%);
-  border-radius: 999px;
-  color: #e9f6f3;
-  font-weight: 700;
-  padding-inline: 18px;
-}
-
-.nav-pill:hover {
-  background: rgb(45 212 191 / 10%);
-  border-color: rgb(45 212 191 / 26%);
 }
 
 .eyebrow {
@@ -195,7 +274,13 @@ a {
 .dashboard-stack {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
+}
+
+.review-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .card,
@@ -213,9 +298,9 @@ a {
   border-radius: 24px;
   display: grid;
   gap: 12px;
-  min-height: 134px;
+  min-height: 122px;
   overflow: hidden;
-  padding: 24px;
+  padding: 22px 24px;
   position: relative;
 }
 
@@ -248,7 +333,7 @@ a {
 
 .card strong {
   color: #f5fffc;
-  font-size: 2.3rem;
+  font-size: 2.05rem;
   font-variant-numeric: tabular-nums;
   font-weight: 720;
   letter-spacing: -0.04em;
@@ -258,7 +343,7 @@ a {
 .panel {
   border-radius: 28px;
   overflow-x: auto;
-  padding: 26px;
+  padding: 24px 26px;
 }
 
 .report-panel {
@@ -278,17 +363,17 @@ a {
 
 .panel-header h2 {
   color: #f7fffc;
-  font-size: clamp(1.9rem, 3.6vw, 3.35rem);
+  font-size: clamp(1.55rem, 2.7vw, 2.55rem);
   font-weight: 720;
-  letter-spacing: -0.045em;
-  line-height: 1.02;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
   margin: 0;
 }
 
 .panel-header p {
   color: #9fb0b4;
-  line-height: 1.65;
-  max-width: 760px;
+  line-height: 1.58;
+  max-width: 680px;
 }
 
 .queue-meter {
@@ -447,21 +532,22 @@ button:not(:disabled),
     padding-inline: 16px;
   }
 
-  .hero,
+  .app-chrome,
+  .page-header,
   .panel-header {
     grid-template-columns: 1fr;
   }
 
-  .hero {
-    padding: 24px;
+  .app-chrome {
+    justify-items: stretch;
   }
 
-  .hero-copy {
-    align-items: flex-start;
+  .app-nav {
     justify-self: start;
   }
 
-  .hero-title-block {
+  .chrome-status,
+  .page-header-aside {
     justify-self: start;
   }
 
