@@ -185,6 +185,54 @@ describe("classification rules", () => {
       reviewRequired: true,
     });
   });
+
+  test("does not classify Amex charges as card payments", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: -12500,
+        description: "American Express travel charge",
+        kind: "spend",
+        source: "amex",
+      }),
+    ).toEqual({
+      kind: "spend",
+      confidence: "high",
+      reason: "ordinary_spend",
+      reviewRequired: false,
+    });
+  });
+
+  test("keeps source-supplied non-default kinds in review", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: -2500,
+        description: "Manual reimbursement adjustment",
+        kind: "reimbursement",
+        source: "monzo",
+      }),
+    ).toEqual({
+      kind: "reimbursement",
+      confidence: "medium",
+      reason: "source_supplied_kind",
+      reviewRequired: true,
+    });
+  });
+
+  test("classifies zero-value entries as transfers", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: 0,
+        description: "Zero balance correction",
+        kind: "transfer",
+        source: "monzo",
+      }),
+    ).toEqual({
+      kind: "transfer",
+      confidence: "high",
+      reason: "internal_transfer",
+      reviewRequired: false,
+    });
+  });
 });
 
 describe("allocation and settlement accounting", () => {
@@ -401,6 +449,68 @@ describe("monthly reports", () => {
     expect(reports[1]?.monthEndOutstandingByPurpose.friend).toBe(0);
     expect(reports[0]?.allocationByPurpose.personal).toBe(14000);
     expect(reports[0]?.allocationByPurpose.friend).toBe(4000);
+  });
+
+  test("separates business and excluded allocations from personal spend", () => {
+    const entries = [
+      ledgerEntry("amex_personal_april", -10000, "spend", "amex", "2026-04-10"),
+      ledgerEntry("amex_business_april", -30000, "spend", "amex", "2026-04-12"),
+      ledgerEntry("amex_excluded_april", -5000, "spend", "amex", "2026-04-14"),
+      ledgerEntry(
+        "business_reimbursement_may",
+        30000,
+        "reimbursement",
+        "monzo",
+        "2026-05-03",
+      ),
+    ] as const;
+    const allocations: EconomicAllocation[] = [
+      allocation("personal", "amex_personal_april", "personal", 10000),
+      allocation(
+        "business",
+        "amex_business_april",
+        "business",
+        30000,
+        "business",
+      ),
+      allocation("excluded", "amex_excluded_april", "excluded", 5000),
+    ];
+    const settlements: SettlementLink[] = [
+      {
+        id: "business_reimbursement",
+        settlementLedgerEntryId: "business_reimbursement_may",
+        allocationId: "business",
+        type: "business_reimbursement",
+        amountMinorUnits: 30000,
+      },
+    ];
+
+    const reports = calculateMonthlyReports({
+      entries,
+      allocations,
+      settlements,
+      reviewItems: [],
+    });
+
+    expect(reports).toMatchObject([
+      {
+        month: "2026-04",
+        personalSpendMinorUnits: 10000,
+        businessOrReimbursableMinorUnits: 30000,
+        sharedSpendMinorUnits: 0,
+        monthEndCreditCardLiabilityMinorUnits: 45000,
+      },
+      {
+        month: "2026-05",
+        personalSpendMinorUnits: 0,
+        businessOrReimbursableMinorUnits: 0,
+        sharedSpendMinorUnits: 0,
+        monthEndCreditCardLiabilityMinorUnits: 45000,
+      },
+    ]);
+    expect(reports[0]?.allocationByPurpose.excluded).toBe(5000);
+    expect(reports[0]?.monthEndOutstandingByPurpose.business).toBe(30000);
+    expect(reports[1]?.monthEndOutstandingByPurpose.business).toBe(0);
   });
 });
 

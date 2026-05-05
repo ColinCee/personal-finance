@@ -65,6 +65,10 @@ export function classifyTransaction(
     return lowConfidence("income", "positive_amount_uncertain");
   }
 
+  if (defaultKind === "transfer") {
+    return highConfidence("transfer", "internal_transfer");
+  }
+
   return highConfidence("spend", "ordinary_spend");
 }
 
