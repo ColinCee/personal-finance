@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "seed:fixtures": "tsx src/tools/seed-fixture-data.ts",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "validate:private-imports": "tsx src/tools/private-import-validation.ts",

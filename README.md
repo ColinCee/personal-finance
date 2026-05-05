@@ -36,7 +36,7 @@ ledger and budgeting model.
 | TanStack Query            | Keeps server state, loading, and refresh logic out of components.                     |
 | TanStack Table            | Transaction review needs filtering/sorting/table UI early.                            |
 | Hono                      | Small local/self-hosted API for imports, persistence, and reports.                    |
-| SQLite later              | Good default local database for private financial data; no external service required. |
+| Drizzle + SQLite          | Local private database with typed schema and no external service required.            |
 | Vitest                    | Unit-test ledger rules and UI behavior as edge cases are added.                       |
 
 SQLite will run in the local/self-hosted server process, not directly in the browser. The browser
@@ -59,11 +59,62 @@ storage/    Local private storage, ignored by git
 ```bash
 mise install
 pnpm install
-pnpm dev
 pnpm verify
 pnpm check
 pnpm test
 ```
+
+### Local fake-data demo
+
+The app is public and data-free, so the committed demo path uses `fixtures/`
+only:
+
+```bash
+pnpm demo:seed
+pnpm dev
+```
+
+`pnpm demo:seed` imports `fixtures/transactions.csv` into the local SQLite
+database at `storage/personal-finance.sqlite`. The command is idempotent for the
+same fixture file, so running it repeatedly should not duplicate rows.
+
+With `pnpm dev` running:
+
+- Web app: <http://127.0.0.1:5173>
+- API health: <http://127.0.0.1:8787/api/health>
+- Monthly reports API: <http://127.0.0.1:8787/api/reports/monthly>
+
+If port `8787` is already in use, run the server on another port and point Vite
+at it:
+
+```bash
+PORT=8788 pnpm --filter @personal-finance/server dev
+VITE_API_PROXY_TARGET=http://127.0.0.1:8788 pnpm --filter @personal-finance/web dev
+```
+
+### Private local validation
+
+Real Monzo and Amex exports can be placed in `storage/` for local-only aggregate
+validation:
+
+```bash
+pnpm validate:private-imports
+```
+
+The validator reports counts, totals, classifications, and cross-checks without
+printing row descriptions, merchant names, account numbers, transaction IDs, or
+file names.
+
+## CI and quality gates
+
+GitHub Actions runs `pnpm verify` on pushes and pull requests. Locally, use the
+same command before committing code changes. `pnpm verify` includes type checks,
+Biome format checks, linting, tests, and production builds.
+
+Browser-level smoke testing should use the fake-data demo path after starting
+`pnpm dev`: check that the dashboard loads, monthly reports are visible, and the
+review inbox renders the fake ledger rows. Keep browser smoke tests on fake
+fixture data only.
 
 ## Privacy rules
 
@@ -71,3 +122,4 @@ pnpm test
 - Do not commit account numbers, account IDs, salary amounts, or merchant histories.
 - Keep real local files under `storage/`.
 - Use `fixtures/` and tests for fake data only.
+- Do not paste private row-level data into issues, PRs, screenshots, logs, or agent prompts.

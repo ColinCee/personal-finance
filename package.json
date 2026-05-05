@@ -6,6 +6,7 @@
   "packageManager": "pnpm@10.24.0",
   "scripts": {
     "dev": "pnpm --parallel --filter @personal-finance/server --filter @personal-finance/web dev",
+    "demo:seed": "pnpm --filter @personal-finance/server seed:fixtures",
     "build": "pnpm -r build",
     "check": "pnpm -r check",
     "lint": "biome lint --error-on-warnings .",
