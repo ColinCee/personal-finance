@@ -5,7 +5,12 @@ import { count } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 
 import type { AppDatabase } from "../db/client";
-import { ledgerEntries, rawTransactions, reviewItems } from "../db/schema";
+import {
+  importedFiles,
+  ledgerEntries,
+  rawTransactions,
+  reviewItems,
+} from "../db/schema";
 import { createImportsRepository } from "../repositories/imports-repository";
 import { createTestDatabase } from "../test/database";
 import { createImportsService } from "./imports-service";
@@ -16,6 +21,43 @@ const fixtureCsv = readFileSync(
 );
 
 describe("imports service", () => {
+  test("previews fixture CSV metadata without persisting rows", () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      const importsService = createImportsService(
+        createImportsRepository(testDatabase.db),
+      );
+
+      const preview = importsService.previewCsvImport({
+        csv: fixtureCsv,
+        originalFileName: "transactions.csv",
+        source: "fixture_csv",
+      });
+
+      expect(preview).toMatchObject({
+        source: "fixture_csv",
+        originalFileName: "transactions.csv",
+        rowCount: 4,
+        duplicateRowCount: 0,
+        alreadyImported: false,
+        dateRange: {
+          from: "2026-05-01",
+          to: "2026-05-04",
+        },
+        reviewItemCount: 0,
+        moneyInMinorUnits: 302500,
+        moneyOutMinorUnits: 16480,
+        netAmountMinorUnits: 286020,
+      });
+      expect(tableCount(testDatabase.db, importedFiles)).toBe(0);
+      expect(tableCount(testDatabase.db, rawTransactions)).toBe(0);
+      expect(tableCount(testDatabase.db, ledgerEntries)).toBe(0);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
   test("imports fixture CSV rows into raw transactions, ledger entries, and review items", () => {
     const testDatabase = createTestDatabase();
 
@@ -38,6 +80,18 @@ describe("imports service", () => {
       expect(tableCount(testDatabase.db, rawTransactions)).toBe(4);
       expect(tableCount(testDatabase.db, ledgerEntries)).toBe(4);
       expect(tableCount(testDatabase.db, reviewItems)).toBe(0);
+      expect(
+        JSON.parse(
+          testDatabase.db.select().from(rawTransactions).get()?.rawJson ?? "{}",
+        ),
+      ).toEqual({
+        amount: "3000.00",
+        currency: "GBP",
+        description: "Salary",
+        kind: "income",
+        posted_on: "2026-05-01",
+        source: "fake-monzo",
+      });
     } finally {
       testDatabase.cleanup();
     }
@@ -68,6 +122,17 @@ describe("imports service", () => {
       });
       expect(tableCount(testDatabase.db, rawTransactions)).toBe(4);
       expect(tableCount(testDatabase.db, ledgerEntries)).toBe(4);
+      expect(
+        importsService.previewCsvImport({
+          csv: fixtureCsv,
+          originalFileName: "transactions.csv",
+          source: "fixture_csv",
+        }),
+      ).toMatchObject({
+        alreadyImported: true,
+        duplicateRowCount: 4,
+        rowCount: 4,
+      });
     } finally {
       testDatabase.cleanup();
     }
@@ -114,7 +179,11 @@ describe("imports service", () => {
 
 function tableCount(
   db: AppDatabase,
-  table: typeof rawTransactions | typeof ledgerEntries | typeof reviewItems,
+  table:
+    | typeof importedFiles
+    | typeof rawTransactions
+    | typeof ledgerEntries
+    | typeof reviewItems,
 ) {
   const [result] = db.select({ value: count() }).from(table).all();
 

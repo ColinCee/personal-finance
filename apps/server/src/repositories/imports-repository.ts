@@ -1,7 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import {
   classifyTransaction,
+  type FileImportSource,
+  type ImportSource,
   type NormalizedTransactionInput,
 } from "@personal-finance/core";
 
@@ -14,14 +16,15 @@ import {
   reviewItems,
 } from "../db/schema";
 
-export type FixtureImportRecord = {
+export type ImportRecord = {
   importId: string;
   fileSha256: string;
   originalFileName: string;
+  source: FileImportSource;
   transactions: readonly NormalizedTransactionInput[];
 };
 
-export type FixtureImportResult = {
+export type ImportResult = {
   imported: boolean;
   importedFileId: string;
   rawTransactionCount: number;
@@ -29,21 +32,45 @@ export type FixtureImportResult = {
   reviewItemCount: number;
 };
 
+export type ImportHistoryItem = {
+  id: string;
+  source: FileImportSource;
+  originalFileName: string;
+  importedAt: string;
+  rowCount: number;
+  status: "imported";
+};
+
 export type ImportsRepository = {
-  importFixtureTransactions: (
-    record: FixtureImportRecord,
-  ) => FixtureImportResult;
+  findImportBySourceAndHash: (
+    source: FileImportSource,
+    fileSha256: string,
+  ) => { id: string; rowCount: number } | undefined;
+  importTransactions: (record: ImportRecord) => ImportResult;
+  listImportedFiles: () => ImportHistoryItem[];
 };
 
 export function createImportsRepository(db: AppDatabase): ImportsRepository {
   return {
-    importFixtureTransactions: (record) => {
+    findImportBySourceAndHash: (source, fileSha256) =>
+      db
+        .select({ id: importedFiles.id, rowCount: importedFiles.rowCount })
+        .from(importedFiles)
+        .where(
+          and(
+            eq(importedFiles.source, source),
+            eq(importedFiles.fileSha256, fileSha256),
+          ),
+        )
+        .get(),
+
+    importTransactions: (record) => {
       const existingImport = db
         .select({ id: importedFiles.id })
         .from(importedFiles)
         .where(
           and(
-            eq(importedFiles.source, "fixture_csv"),
+            eq(importedFiles.source, record.source),
             eq(importedFiles.fileSha256, record.fileSha256),
           ),
         )
@@ -69,7 +96,10 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
               id: accountIdForSource(source),
               name: accountNameForSource(source),
               institution: institutionForSource(source),
-              type: source === "fake-amex" ? "credit_card" : "current",
+              type:
+                source === "amex" || source === "fake-amex"
+                  ? "credit_card"
+                  : "current",
             })
             .onConflictDoNothing()
             .run();
@@ -79,7 +109,7 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
           .insert(importedFiles)
           .values({
             id: record.importId,
-            source: "fixture_csv",
+            source: record.source,
             originalFileName: record.originalFileName,
             fileSha256: record.fileSha256,
             rowCount: record.transactions.length,
@@ -108,7 +138,7 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
               description: entry.description,
               amountMinorUnits: entry.amountMinorUnits,
               currency: entry.currency,
-              rawJson: JSON.stringify(entry),
+              rawJson: JSON.stringify(entry.raw),
             })
             .run();
 
@@ -150,17 +180,47 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
         };
       });
     },
+
+    listImportedFiles: () =>
+      db
+        .select({
+          id: importedFiles.id,
+          source: importedFiles.source,
+          originalFileName: importedFiles.originalFileName,
+          importedAt: importedFiles.importedAt,
+          rowCount: importedFiles.rowCount,
+          status: importedFiles.status,
+        })
+        .from(importedFiles)
+        .orderBy(desc(importedFiles.importedAt))
+        .all(),
   };
 }
 
-function accountIdForSource(source: NormalizedTransactionInput["source"]) {
+function accountIdForSource(source: ImportSource) {
   return `account_${source}`;
 }
 
-function accountNameForSource(source: NormalizedTransactionInput["source"]) {
-  return source === "fake-amex" ? "Fake Amex" : "Fake Monzo";
+function accountNameForSource(source: ImportSource) {
+  switch (source) {
+    case "amex":
+      return "Amex";
+    case "fake-amex":
+      return "Fake Amex";
+    case "monzo":
+      return "Monzo";
+    case "fake-monzo":
+      return "Fake Monzo";
+  }
 }
 
-function institutionForSource(source: NormalizedTransactionInput["source"]) {
-  return source === "fake-amex" ? "American Express" : "Monzo";
+function institutionForSource(source: ImportSource) {
+  switch (source) {
+    case "amex":
+    case "fake-amex":
+      return "American Express";
+    case "monzo":
+    case "fake-monzo":
+      return "Monzo";
+  }
 }

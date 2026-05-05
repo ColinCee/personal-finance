@@ -283,6 +283,89 @@ a {
   gap: 16px;
 }
 
+.import-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.import-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(280px, 0.86fr) minmax(320px, 1.14fr);
+}
+
+.import-panel,
+.import-preview-panel {
+  min-height: 100%;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.field span,
+.file-drop span {
+  color: #f1fbf8;
+  font-size: 0.9rem;
+  font-weight: 760;
+}
+
+.field select {
+  appearance: none;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 7%), rgb(255 255 255 / 3%)),
+    rgb(10 16 23 / 82%);
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 16px;
+  color: #f7fffc;
+  font: inherit;
+  padding: 12px 14px;
+}
+
+.file-drop {
+  background:
+    linear-gradient(rgb(255 255 255 / 4%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 4%) 1px, transparent 1px),
+    rgb(255 255 255 / 4%);
+  background-size: 26px 26px;
+  border: 1px dashed rgb(112 240 223 / 26%);
+  border-radius: 22px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 22px;
+}
+
+.file-drop small {
+  color: #84969d;
+  line-height: 1.5;
+}
+
+.file-drop input {
+  color: #9fb0b4;
+  max-width: 100%;
+}
+
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.preview-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 20px;
+}
+
 .card,
 .panel {
   background:
@@ -374,6 +457,23 @@ a {
   color: #9fb0b4;
   line-height: 1.58;
   max-width: 680px;
+}
+
+.panel-header.compact {
+  display: block;
+}
+
+.panel-header.compact h2 {
+  font-size: clamp(1.35rem, 2vw, 1.85rem);
+}
+
+.preview-grid .card {
+  min-height: 108px;
+  padding: 18px;
+}
+
+.preview-grid .card strong {
+  font-size: 1.7rem;
 }
 
 .queue-meter {
@@ -533,6 +633,7 @@ button:not(:disabled),
   }
 
   .app-chrome,
+  .import-layout,
   .page-header,
   .panel-header {
     grid-template-columns: 1fr;
@@ -558,6 +659,10 @@ button:not(:disabled),
     min-width: 0;
     padding: 14px 18px;
     width: fit-content;
+  }
+
+  .preview-grid {
+    grid-template-columns: 1fr;
   }
 }
 

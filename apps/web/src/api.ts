@@ -3,11 +3,13 @@ import { z } from "zod";
 import {
   allocationPurposes,
   entryKinds,
+  fileImportSources,
   settlementTypes,
 } from "@personal-finance/core";
 import type {
   AllocationPurpose,
   EntryKind,
+  FileImportSource,
   SettlementType,
 } from "@personal-finance/core";
 
@@ -55,6 +57,51 @@ const monthlyReportSchema = z.object({
 });
 
 export type MonthlyReport = z.infer<typeof monthlyReportSchema>;
+
+const importPreviewSchema = z.object({
+  source: z.enum(fileImportSources),
+  originalFileName: z.string(),
+  fileSha256: z.string(),
+  rowCount: z.number().int(),
+  duplicateRowCount: z.number().int(),
+  alreadyImported: z.boolean(),
+  dateRange: z.object({
+    from: z.string().nullable(),
+    to: z.string().nullable(),
+  }),
+  reviewItemCount: z.number().int(),
+  moneyInMinorUnits: z.number().int(),
+  moneyOutMinorUnits: z.number().int(),
+  netAmountMinorUnits: z.number().int(),
+});
+
+export type ImportPreview = z.infer<typeof importPreviewSchema>;
+
+const importCommitResultSchema = importPreviewSchema.extend({
+  imported: z.boolean(),
+  importedFileId: z.string(),
+  rawTransactionCount: z.number().int(),
+  ledgerEntryCount: z.number().int(),
+  importedAt: z.string(),
+});
+
+export type ImportCommitResult = z.infer<typeof importCommitResultSchema>;
+
+const importHistoryItemSchema = z.object({
+  id: z.string(),
+  source: z.enum(fileImportSources),
+  originalFileName: z.string(),
+  importedAt: z.string(),
+  rowCount: z.number().int(),
+  status: z.literal("imported"),
+});
+
+export type ImportHistoryItem = z.infer<typeof importHistoryItemSchema>;
+
+export type CsvImportRequest = {
+  file: File;
+  source: FileImportSource;
+};
 
 const reviewDecisionSchema = z.object({
   id: z.string(),
@@ -141,6 +188,46 @@ export async function fetchMonthlyReports(): Promise<MonthlyReport[]> {
   return z.array(monthlyReportSchema).parse(await response.json());
 }
 
+export async function fetchImportHistory(): Promise<ImportHistoryItem[]> {
+  const response = await fetch("/api/imports");
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch import history: ${response.status}`);
+  }
+
+  return z.array(importHistoryItemSchema).parse(await response.json());
+}
+
+export async function previewCsvImport(
+  request: CsvImportRequest,
+): Promise<ImportPreview> {
+  const response = await fetch("/api/imports/preview", {
+    method: "POST",
+    body: csvImportFormData(request),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to preview CSV import: ${response.status}`);
+  }
+
+  return importPreviewSchema.parse(await response.json());
+}
+
+export async function commitCsvImport(
+  request: CsvImportRequest,
+): Promise<ImportCommitResult> {
+  const response = await fetch("/api/imports", {
+    method: "POST",
+    body: csvImportFormData(request),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to import CSV: ${response.status}`);
+  }
+
+  return importCommitResultSchema.parse(await response.json());
+}
+
 export async function submitReviewDecision(
   decision: ReviewDecisionInput,
 ): Promise<ReviewDecision> {
@@ -185,4 +272,13 @@ export async function submitAllocationDecision(
   }
 
   return allocationDecisionSchema.parse(await response.json());
+}
+
+function csvImportFormData(request: CsvImportRequest) {
+  const form = new FormData();
+
+  form.set("source", request.source);
+  form.set("file", request.file);
+
+  return form;
 }

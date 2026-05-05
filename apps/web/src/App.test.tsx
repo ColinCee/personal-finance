@@ -64,6 +64,17 @@ const fakeMonthlyReports = [
   },
 ];
 
+const fakeImportHistory = [
+  {
+    id: "import_fixture_1",
+    source: "fixture_csv",
+    originalFileName: "transactions.csv",
+    importedAt: "2026-05-05T12:00:00.000Z",
+    rowCount: 4,
+    status: "imported",
+  },
+];
+
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -123,6 +134,62 @@ beforeEach(() => {
       };
     }
 
+    if (method === "GET" && url === "/api/imports") {
+      return {
+        ok: true,
+        json: async () => fakeImportHistory,
+      };
+    }
+
+    if (method === "POST" && url === "/api/imports/preview") {
+      return {
+        ok: true,
+        json: async () => ({
+          source: "fixture_csv",
+          originalFileName: "transactions.csv",
+          fileSha256: "hash",
+          rowCount: 4,
+          duplicateRowCount: 0,
+          alreadyImported: false,
+          dateRange: {
+            from: "2026-05-01",
+            to: "2026-05-04",
+          },
+          reviewItemCount: 0,
+          moneyInMinorUnits: 302500,
+          moneyOutMinorUnits: 16480,
+          netAmountMinorUnits: 286020,
+        }),
+      };
+    }
+
+    if (method === "POST" && url === "/api/imports") {
+      return {
+        ok: true,
+        json: async () => ({
+          source: "fixture_csv",
+          originalFileName: "transactions.csv",
+          fileSha256: "hash",
+          rowCount: 4,
+          duplicateRowCount: 0,
+          alreadyImported: false,
+          dateRange: {
+            from: "2026-05-01",
+            to: "2026-05-04",
+          },
+          reviewItemCount: 0,
+          moneyInMinorUnits: 302500,
+          moneyOutMinorUnits: 16480,
+          netAmountMinorUnits: 286020,
+          imported: true,
+          importedFileId: "import_fixture_1",
+          rawTransactionCount: 4,
+          ledgerEntryCount: 4,
+          importedAt: "2026-05-05T12:00:00.000Z",
+        }),
+      };
+    }
+
     if (method === "GET" && url === "/api/transactions") {
       return {
         ok: true,
@@ -176,6 +243,48 @@ test("submits a review decision from the inbox", async () => {
         decidedKind: "credit_card_payment",
       }),
     }),
+  );
+});
+
+test("previews and commits a CSV import", async () => {
+  window.history.pushState({}, "", "/imports");
+  render(<App />);
+
+  expect(
+    await screen.findByRole("heading", { name: "Import workspace" }),
+  ).toBeInTheDocument();
+
+  fireEvent.change(await screen.findByLabelText("Source"), {
+    target: { value: "fixture_csv" },
+  });
+  fireEvent.change(screen.getByLabelText(/Choose a CSV file/), {
+    target: {
+      files: [
+        new File(
+          ["posted_on,description,amount,currency,kind,source"],
+          "transactions.csv",
+          {
+            type: "text/csv",
+          },
+        ),
+      ],
+    },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Preview import" }));
+
+  expect(await screen.findByText("Ready")).toBeInTheDocument();
+  expect(await screen.findAllByText("4")).not.toHaveLength(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "Commit import" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/imports",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.any(FormData),
+      }),
+    ),
   );
 });
 

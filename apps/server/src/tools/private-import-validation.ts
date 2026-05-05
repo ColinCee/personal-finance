@@ -12,9 +12,14 @@ import type {
   ClassificationConfidence,
   ClassificationReason,
   EntryKind,
+  FileImportSource,
   NormalizedTransactionInput,
   TransactionClassification,
 } from "@personal-finance/core";
+import { createDatabaseConnection } from "../db/client";
+import { runMigrations } from "../db/migrate";
+import { createImportsRepository } from "../repositories/imports-repository";
+import { createImportsService } from "../services/imports-service";
 
 type ImportSourceKind = "amex" | "monzo";
 
@@ -30,6 +35,19 @@ type MoneySummary = {
 
 type ClassifiedTransaction = NormalizedTransactionInput & {
   classification: TransactionClassification;
+};
+
+type PrivateImportPreviewSummary = {
+  rowCount: number;
+  duplicateRowCount: number;
+  dateRange: {
+    from: string | null;
+    to: string | null;
+  };
+  reviewItemCount: number;
+  moneyIn: MoneySummary;
+  moneyOut: MoneySummary;
+  netAmount: MoneySummary;
 };
 
 export type PrivateImportValidationSummary = {
@@ -65,6 +83,7 @@ export type PrivateImportFileSummary = {
   byKind: Record<EntryKind, number>;
   byReason: Record<ClassificationReason, number>;
   byConfidence: Record<ClassificationConfidence, number>;
+  importPreview: PrivateImportPreviewSummary;
   monthly: Record<
     string,
     {
@@ -228,9 +247,47 @@ function summarizeFile(
       transactions,
       (transaction) => transaction.classification.confidence,
     ),
+    importPreview: previewPrivateImport(csv, source, index),
     monthly: summarizeMonthly(transactions),
     transactions,
   };
+}
+
+function previewPrivateImport(
+  csv: string,
+  source: ImportSourceKind,
+  index: number,
+): PrivateImportPreviewSummary {
+  const connection = createDatabaseConnection(":memory:");
+
+  try {
+    runMigrations(connection.db);
+    const preview = createImportsService(
+      createImportsRepository(connection.db),
+    ).previewCsvImport({
+      csv,
+      originalFileName: `storage_csv_${index + 1}.csv`,
+      source: fileImportSourceForPrivateSource(source),
+    });
+
+    return {
+      rowCount: preview.rowCount,
+      duplicateRowCount: preview.duplicateRowCount,
+      dateRange: preview.dateRange,
+      reviewItemCount: preview.reviewItemCount,
+      moneyIn: moneySummary(preview.moneyInMinorUnits),
+      moneyOut: moneySummary(preview.moneyOutMinorUnits),
+      netAmount: moneySummary(preview.netAmountMinorUnits),
+    };
+  } finally {
+    connection.close();
+  }
+}
+
+function fileImportSourceForPrivateSource(
+  source: ImportSourceKind,
+): FileImportSource {
+  return source === "amex" ? "amex_csv" : "monzo_csv";
 }
 
 function summarizeTransactions(transactions: readonly ClassifiedTransaction[]) {

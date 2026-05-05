@@ -15,6 +15,7 @@ export type NormalizedTransactionInput = {
   currency: Currency;
   kind: EntryKind;
   source: ImportSource;
+  raw: Record<string, string>;
 };
 
 const fixtureTransactionRowSchema = z.object({
@@ -82,6 +83,7 @@ export function parseFixtureTransactionsCsv(
       currency: parsedRow.currency as Currency,
       kind: parsedRow.kind,
       source: parsedRow.source,
+      raw: row,
     };
   });
 }
@@ -110,6 +112,7 @@ export function parseMonzoTransactionsCsv(
       currency,
       kind: amountMinorUnits > 0 ? "income" : "spend",
       source: "monzo",
+      raw: row,
     };
   });
 }
@@ -138,6 +141,7 @@ export function parseAmexTransactionsCsv(
       currency,
       kind: amountMinorUnits > 0 ? "reimbursement" : "spend",
       source: "amex",
+      raw: row,
     };
   });
 }

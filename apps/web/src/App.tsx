@@ -16,13 +16,23 @@ import {
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-import type { AllocationPurpose, EntryKind } from "@personal-finance/core";
+import { fileImportSources } from "@personal-finance/core";
+import type {
+  AllocationPurpose,
+  EntryKind,
+  FileImportSource,
+} from "@personal-finance/core";
 import { Button } from "@/components/ui/button";
 import {
+  commitCsvImport,
   fetchMonthlyReports,
+  fetchImportHistory,
   fetchTransactions,
+  previewCsvImport,
   submitAllocationDecision,
   submitReviewDecision,
+  type CsvImportRequest,
+  type ImportPreview,
   type MonthlyReport,
   type Transaction,
 } from "./api";
@@ -44,8 +54,14 @@ const reviewRoute = createRoute({
   component: ReviewInbox,
 });
 
+const importsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/imports",
+  component: ImportWorkspace,
+});
+
 const router = createRouter({
-  routeTree: rootRoute.addChildren([indexRoute, reviewRoute]),
+  routeTree: rootRoute.addChildren([indexRoute, importsRoute, reviewRoute]),
 });
 
 declare module "@tanstack/react-router" {
@@ -99,6 +115,13 @@ function RootLayout() {
             to="/"
           >
             Dashboard
+          </Link>
+          <Link
+            activeProps={{ className: "app-nav-link active" }}
+            inactiveProps={{ className: "app-nav-link" }}
+            to="/imports"
+          >
+            Imports
           </Link>
           <Link
             activeProps={{ className: "app-nav-link active" }}
@@ -173,6 +196,157 @@ function Dashboard() {
         isError={monthlyReports.isError}
         isLoading={monthlyReports.isLoading}
         reports={reports}
+      />
+    </div>
+  );
+}
+
+function ImportWorkspace() {
+  const queryClient = useQueryClient();
+  const importHistory = useQuery({
+    queryKey: ["import-history"],
+    queryFn: fetchImportHistory,
+  });
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [source, setSource] = useState<FileImportSource>("fixture_csv");
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const previewMutation = useMutation({
+    mutationFn: previewCsvImport,
+    onSuccess: (nextPreview) => setPreview(nextPreview),
+  });
+  const commitMutation = useMutation({
+    mutationFn: commitCsvImport,
+    onSuccess: (result) => {
+      setPreview(result);
+      void queryClient.invalidateQueries({ queryKey: ["import-history"] });
+      void queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      void queryClient.invalidateQueries({ queryKey: ["monthly-reports"] });
+    },
+  });
+
+  function currentRequest(): CsvImportRequest | null {
+    return selectedFile ? { file: selectedFile, source } : null;
+  }
+
+  function previewCurrentImport() {
+    const request = currentRequest();
+
+    if (request) {
+      previewMutation.mutate(request);
+    }
+  }
+
+  return (
+    <div className="import-stack">
+      <PageHeader
+        aside={
+          <div className="page-actions">
+            <span className="status-pill">CSV upload</span>
+            <span className="status-pill muted">Preview first</span>
+          </div>
+        }
+        description="Upload a bank export, inspect aggregate-only metadata, then commit it into the auditable local ledger."
+        eyebrow="Imports"
+        title="Import workspace"
+      />
+
+      <section className="import-layout">
+        <form
+          className="panel import-panel"
+          onSubmit={(event) => {
+            event.preventDefault();
+            previewCurrentImport();
+          }}
+        >
+          <div className="panel-header compact">
+            <div>
+              <p className="eyebrow">Upload</p>
+              <h2>Preview a CSV</h2>
+              <p>
+                Preview returns counts, date range, duplicate status, and money
+                totals before anything is persisted.
+              </p>
+            </div>
+          </div>
+
+          <label className="field">
+            <span>Source</span>
+            <select
+              onChange={(event) => {
+                setSource(event.target.value as FileImportSource);
+                setPreview(null);
+              }}
+              value={source}
+            >
+              {fileImportSources.map((importSource) => (
+                <option key={importSource} value={importSource}>
+                  {formatFileImportSource(importSource)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="file-drop">
+            <span>
+              {selectedFile ? selectedFile.name : "Choose a CSV file"}
+            </span>
+            <small>
+              The browser sends the file to the local API; SQLite stays server
+              owned.
+            </small>
+            <input
+              accept=".csv,text/csv"
+              onChange={(event) => {
+                setSelectedFile(event.target.files?.[0] ?? null);
+                setPreview(null);
+              }}
+              type="file"
+            />
+          </label>
+
+          <div className="import-actions">
+            <Button
+              disabled={!selectedFile || previewMutation.isPending}
+              onClick={previewCurrentImport}
+              type="button"
+            >
+              {previewMutation.isPending ? "Previewing..." : "Preview import"}
+            </Button>
+            <Button
+              disabled={
+                !selectedFile ||
+                !preview ||
+                commitMutation.isPending ||
+                preview.alreadyImported
+              }
+              onClick={() => {
+                const request = currentRequest();
+
+                if (request) {
+                  commitMutation.mutate(request);
+                }
+              }}
+              type="button"
+              variant="secondary"
+            >
+              {commitMutation.isPending ? "Importing..." : "Commit import"}
+            </Button>
+          </div>
+
+          {previewMutation.isError || commitMutation.isError ? (
+            <p className="decision-error" role="alert">
+              {previewMutation.error?.message ?? commitMutation.error?.message}
+            </p>
+          ) : null}
+        </form>
+
+        <ImportPreviewPanel preview={preview} />
+      </section>
+
+      <ImportHistoryPanel
+        history={importHistory.data ?? []}
+        isError={importHistory.isError}
+        isLoading={importHistory.isLoading}
       />
     </div>
   );
@@ -340,6 +514,124 @@ function PageHeader(props: {
       {props.aside ? (
         <div className="page-header-aside">{props.aside}</div>
       ) : null}
+    </section>
+  );
+}
+
+function ImportPreviewPanel(props: { preview: ImportPreview | null }) {
+  if (!props.preview) {
+    return (
+      <section className="panel import-preview-panel">
+        <div className="empty-state">
+          <strong>No preview yet.</strong>
+          <span>Select a source and CSV to inspect safe import metadata.</span>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel import-preview-panel">
+      <div className="panel-header compact">
+        <div>
+          <p className="eyebrow">Preview</p>
+          <h2>
+            {props.preview.alreadyImported ? "Already imported" : "Ready"}
+          </h2>
+          <p>
+            {props.preview.originalFileName} ·{" "}
+            {formatFileImportSource(props.preview.source)}
+          </p>
+        </div>
+      </div>
+
+      <div className="preview-grid">
+        <SummaryCard label="Rows" value={props.preview.rowCount.toString()} />
+        <SummaryCard
+          label="Duplicates"
+          value={props.preview.duplicateRowCount.toString()}
+          hint={
+            props.preview.alreadyImported ? "Same file hash exists" : "None"
+          }
+        />
+        <SummaryCard
+          label="Review"
+          value={`${props.preview.reviewItemCount} items`}
+          hint="Will need confirmation"
+        />
+        <SummaryCard
+          label="Net"
+          value={formatCurrencyFromMinorUnits(
+            props.preview.netAmountMinorUnits,
+          )}
+          hint={`${formatDateRange(props.preview.dateRange)} period`}
+        />
+      </div>
+    </section>
+  );
+}
+
+function ImportHistoryPanel(props: {
+  history: readonly {
+    id: string;
+    source: FileImportSource;
+    originalFileName: string;
+    importedAt: string;
+    rowCount: number;
+    status: "imported";
+  }[];
+  isError: boolean;
+  isLoading: boolean;
+}) {
+  if (props.isLoading) {
+    return <p className="panel">Loading import history...</p>;
+  }
+
+  if (props.isError) {
+    return <p className="panel error">Unable to load import history.</p>;
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-header compact">
+        <div>
+          <p className="eyebrow">History</p>
+          <h2>Imported files</h2>
+          <p>Committed files are tracked by source and file hash.</p>
+        </div>
+      </div>
+
+      {props.history.length === 0 ? (
+        <div className="empty-state">
+          <strong>No imports yet.</strong>
+          <span>Preview and commit a CSV to start the ledger.</span>
+        </div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Source</th>
+              <th>Rows</th>
+              <th>Imported</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {props.history.map((item) => (
+              <tr key={item.id}>
+                <td>{item.originalFileName}</td>
+                <td>{formatFileImportSource(item.source)}</td>
+                <td>{item.rowCount}</td>
+                <td>{formatTimestamp(item.importedAt)}</td>
+                <td>
+                  <span className="kind-pill">{item.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </section>
   );
 }
@@ -524,6 +816,36 @@ function formatMonth(month: string): string {
     timeZone: "UTC",
     year: "numeric",
   }).format(new Date(`${month}-01T00:00:00.000Z`));
+}
+
+function formatTimestamp(timestamp: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+}
+
+function formatDateRange(range: { from: string | null; to: string | null }) {
+  if (!range.from || !range.to) {
+    return "No dates";
+  }
+
+  if (range.from === range.to) {
+    return range.from;
+  }
+
+  return `${range.from} to ${range.to}`;
+}
+
+function formatFileImportSource(source: FileImportSource) {
+  switch (source) {
+    case "amex_csv":
+      return "Amex CSV";
+    case "fixture_csv":
+      return "Fixture CSV";
+    case "monzo_csv":
+      return "Monzo CSV";
+  }
 }
 
 const decisionKindOptions: { kind: EntryKind; label: string }[] = [

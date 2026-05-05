@@ -532,7 +532,7 @@ describe("fixture imports", () => {
       ].join("\n"),
     );
 
-    expect(transactions).toEqual([
+    expect(transactions).toMatchObject([
       {
         id: "fixture:0:2026-05-02:fake-amex",
         postedOn: "2026-05-02",
@@ -543,6 +543,14 @@ describe("fixture imports", () => {
         source: "fake-amex",
       },
     ]);
+    expect(transactions[0]?.raw).toEqual({
+      amount: "-82.40",
+      currency: "GBP",
+      description: "Groceries",
+      kind: "spend",
+      posted_on: "2026-05-02",
+      source: "fake-amex",
+    });
   });
 
   test("rejects malformed fixture CSV rows", () => {
@@ -578,7 +586,7 @@ describe("bank imports", () => {
       ].join("\n"),
     );
 
-    expect(transactions).toEqual([
+    expect(transactions).toMatchObject([
       {
         id: "tx_1",
         postedOn: "2026-05-02",
@@ -598,6 +606,10 @@ describe("bank imports", () => {
         source: "monzo",
       },
     ]);
+    expect(transactions[0]?.raw).toMatchObject({
+      ID: "tx_1",
+      Name: "Groceries",
+    });
   });
 
   test("parses current Monzo export headers with decimal major-unit amounts", () => {
@@ -646,7 +658,7 @@ describe("bank imports", () => {
       ].join("\n"),
     );
 
-    expect(transactions).toEqual([
+    expect(transactions).toMatchObject([
       {
         id: "tx_1",
         postedOn: "2026-05-02",
@@ -657,6 +669,11 @@ describe("bank imports", () => {
         source: "monzo",
       },
     ]);
+    expect(transactions[0]?.raw).toMatchObject({
+      "Transaction ID": "tx_1",
+      Amount: "-82.40",
+      "Money Out": "82.40",
+    });
   });
 
   test("parses current Amex export headers with charge-positive amounts", () => {
@@ -668,7 +685,7 @@ describe("bank imports", () => {
       ].join("\n"),
     );
 
-    expect(transactions).toEqual([
+    expect(transactions).toMatchObject([
       {
         id: "amex:0:2026-05-02",
         postedOn: "2026-05-02",
@@ -688,6 +705,11 @@ describe("bank imports", () => {
         source: "amex",
       },
     ]);
+    expect(transactions[0]?.raw).toMatchObject({
+      "Account #": "00000",
+      Amount: "82.40",
+      "Card Member": "Example Person",
+    });
   });
 
   test("rejects unsupported bank CSV currencies", () => {

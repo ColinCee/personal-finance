@@ -97,6 +97,11 @@ describe("private import validation", () => {
           file: "storage_csv_1",
           source: "amex",
           rowCount: 2,
+          importPreview: expect.objectContaining({
+            duplicateRowCount: 0,
+            reviewItemCount: 1,
+            rowCount: 2,
+          }),
           byKind: expect.objectContaining({
             spend: 1,
             reimbursement: 1,
@@ -106,6 +111,11 @@ describe("private import validation", () => {
           file: "storage_csv_2",
           source: "monzo",
           rowCount: 2,
+          importPreview: expect.objectContaining({
+            duplicateRowCount: 0,
+            reviewItemCount: 0,
+            rowCount: 2,
+          }),
           byKind: expect.objectContaining({
             income: 1,
             credit_card_payment: 1,

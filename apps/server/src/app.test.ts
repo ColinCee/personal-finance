@@ -3,6 +3,14 @@ import { describe, expect, test } from "vitest";
 import type { EntryKind } from "@personal-finance/core";
 import type { AppDatabase } from "./db/client";
 import { createTestDatabase } from "./test/database";
+
+const fixtureCsv = [
+  "posted_on,description,amount,currency,kind,source",
+  "2026-05-01,Salary,3000.00,GBP,income,fake-monzo",
+  "2026-05-02,Groceries,-82.40,GBP,spend,fake-amex",
+  "2026-05-03,Amex payment,-82.40,GBP,credit_card_payment,fake-monzo",
+  "2026-05-04,Dinner repayment,25.00,GBP,reimbursement,fake-monzo",
+].join("\n");
 import { createApp } from "./app";
 import {
   accounts,
@@ -82,6 +90,118 @@ describe("app", () => {
           openReviewItemCount: 1,
         },
       ]);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("previews CSV imports with safe aggregate metadata only", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      const app = createApp(testDatabase.db);
+      const response = await app.request("/api/imports/preview", {
+        method: "POST",
+        body: csvImportFormData({
+          csv: fixtureCsv,
+          fileName: "transactions.csv",
+          source: "fixture_csv",
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        source: "fixture_csv",
+        originalFileName: "transactions.csv",
+        rowCount: 4,
+        duplicateRowCount: 0,
+        alreadyImported: false,
+        dateRange: {
+          from: "2026-05-01",
+          to: "2026-05-04",
+        },
+      });
+      expect(testDatabase.db.select().from(importedFiles).all()).toEqual([]);
+      expect(testDatabase.db.select().from(rawTransactions).all()).toEqual([]);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("commits CSV imports and returns import history", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      const app = createApp(testDatabase.db);
+      const importResponse = await app.request("/api/imports", {
+        method: "POST",
+        body: csvImportFormData({
+          csv: fixtureCsv,
+          fileName: "transactions.csv",
+          source: "fixture_csv",
+        }),
+      });
+
+      expect(importResponse.status).toBe(201);
+      await expect(importResponse.json()).resolves.toMatchObject({
+        imported: true,
+        source: "fixture_csv",
+        rawTransactionCount: 4,
+        ledgerEntryCount: 4,
+        reviewItemCount: 0,
+      });
+      expect(testDatabase.db.select().from(rawTransactions).all()).toHaveLength(
+        4,
+      );
+      expect(testDatabase.db.select().from(ledgerEntries).all()).toHaveLength(
+        4,
+      );
+
+      const historyResponse = await app.request("/api/imports");
+
+      expect(historyResponse.status).toBe(200);
+      await expect(historyResponse.json()).resolves.toMatchObject([
+        {
+          source: "fixture_csv",
+          originalFileName: "transactions.csv",
+          rowCount: 4,
+          status: "imported",
+        },
+      ]);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("reports duplicate rows for previously imported CSV files", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      const app = createApp(testDatabase.db);
+
+      await app.request("/api/imports", {
+        method: "POST",
+        body: csvImportFormData({
+          csv: fixtureCsv,
+          fileName: "transactions.csv",
+          source: "fixture_csv",
+        }),
+      });
+      const previewResponse = await app.request("/api/imports/preview", {
+        method: "POST",
+        body: csvImportFormData({
+          csv: fixtureCsv,
+          fileName: "transactions.csv",
+          source: "fixture_csv",
+        }),
+      });
+
+      expect(previewResponse.status).toBe(200);
+      await expect(previewResponse.json()).resolves.toMatchObject({
+        alreadyImported: true,
+        duplicateRowCount: 4,
+        rowCount: 4,
+      });
     } finally {
       testDatabase.cleanup();
     }
@@ -684,4 +804,17 @@ function seedAppReviewFixture(
       reason: "fixture_import",
     })
     .run();
+}
+
+function csvImportFormData(input: {
+  csv: string;
+  fileName: string;
+  source: string;
+}) {
+  const form = new FormData();
+
+  form.set("source", input.source);
+  form.set("file", new File([input.csv], input.fileName, { type: "text/csv" }));
+
+  return form;
 }
