@@ -76,17 +76,26 @@ function RootLayout() {
   return (
     <main className="shell">
       <header className="hero">
-        <p className="eyebrow">Local-first finance workspace</p>
-        <h1>Personal Finance</h1>
-        <p>
-          Import bank exports, review uncertain transactions, and separate real
-          spending from transfers, Amex payments, reimbursements, and
-          joint-account settlements.
-        </p>
-        <nav>
-          <Link to="/">Dashboard</Link>
-          <Link to="/review">Review inbox</Link>
-        </nav>
+        <div className="hero-copy">
+          <p className="eyebrow">Local-first finance workspace</p>
+          <p className="hero-summary">
+            Import bank exports, review uncertain transactions, and separate
+            real spending from transfers, Amex payments, reimbursements, and
+            joint-account settlements.
+          </p>
+          <span className="data-badge">Fake data only</span>
+        </div>
+        <div className="hero-title-block">
+          <h1>Personal Finance</h1>
+          <nav aria-label="Primary" className="hero-nav">
+            <Button asChild className="nav-pill" size="lg" variant="outline">
+              <Link to="/">Dashboard</Link>
+            </Button>
+            <Button asChild className="nav-pill" size="lg" variant="outline">
+              <Link to="/review">Review inbox</Link>
+            </Button>
+          </nav>
+        </div>
       </header>
       <Outlet />
     </main>
@@ -298,19 +307,17 @@ function ReviewActions(props: {
           ? "Saving..."
           : `Confirm ${formatEntryKind(props.transaction.kind)}`}
       </Button>
-      {decisionKindOptions
-        .filter((option) => option.kind !== props.transaction.kind)
-        .map((option) => (
-          <Button
-            disabled={props.pending}
-            key={option.kind}
-            onClick={() => props.onDecision(option.kind)}
-            size="sm"
-            variant="outline"
-          >
-            Mark {option.label}
-          </Button>
-        ))}
+      {kindCorrectionOptionsForTransaction(props.transaction).map((option) => (
+        <Button
+          disabled={props.pending}
+          key={option.kind}
+          onClick={() => props.onDecision(option.kind)}
+          size="sm"
+          variant="outline"
+        >
+          {option.label}
+        </Button>
+      ))}
       {allocationChoicesForTransaction(props.transaction).map((choice) => (
         <Button
           disabled={props.pending}
@@ -465,6 +472,31 @@ const decisionKindOptions: { kind: EntryKind; label: string }[] = [
   { kind: "reimbursement", label: "reimbursement" },
   { kind: "split_settlement", label: "split" },
 ];
+
+const spendCorrectionKinds = new Set<EntryKind>([
+  "transfer",
+  "credit_card_payment",
+  "reimbursement",
+]);
+
+function kindCorrectionOptionsForTransaction(
+  transaction: Transaction,
+): { kind: EntryKind; label: string }[] {
+  return decisionKindOptions
+    .filter((option) => option.kind !== transaction.kind)
+    .filter((option) =>
+      transaction.kind === "spend"
+        ? spendCorrectionKinds.has(option.kind)
+        : option.kind === "spend",
+    )
+    .map((option) => ({
+      kind: option.kind,
+      label:
+        transaction.kind === "spend"
+          ? `Actually ${option.label}`
+          : `Mark as ${option.label}`,
+    }));
+}
 
 const entryKindLabels: Record<EntryKind, string> = {
   income: "income",
