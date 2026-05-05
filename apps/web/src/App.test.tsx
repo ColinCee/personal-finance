@@ -30,6 +30,40 @@ const fakeTransactions = [
   },
 ];
 
+const fakeMonthlyReports = [
+  {
+    month: "2026-05",
+    cashflowNetMinorUnits: -14000,
+    moneyInMinorUnits: 4000,
+    moneyOutMinorUnits: 18000,
+    personalSpendMinorUnits: 14000,
+    businessOrReimbursableMinorUnits: 30000,
+    sharedSpendMinorUnits: 4000,
+    allocationByPurpose: {
+      personal: 14000,
+      partner: 0,
+      joint: 0,
+      friend: 4000,
+      business: 30000,
+      reimbursable: 0,
+      excluded: 0,
+    },
+    monthEndOutstandingByPurpose: {
+      personal: 0,
+      partner: 0,
+      joint: 0,
+      friend: 0,
+      business: 30000,
+      reimbursable: 0,
+      excluded: 0,
+    },
+    monthEndCreditCardLiabilityMinorUnits: 0,
+    transactionCount: 5,
+    reviewItemCount: 2,
+    openReviewItemCount: 1,
+  },
+];
+
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -82,9 +116,25 @@ beforeEach(() => {
       };
     }
 
+    if (method === "GET" && url === "/api/reports/monthly") {
+      return {
+        ok: true,
+        json: async () => fakeMonthlyReports,
+      };
+    }
+
+    if (method === "GET" && url === "/api/transactions") {
+      return {
+        ok: true,
+        json: async () => fakeTransactions,
+      };
+    }
+
     return {
       ok: true,
-      json: async () => fakeTransactions,
+      json: async () => {
+        throw new Error(`Unexpected request: ${method} ${url}`);
+      },
     };
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -97,6 +147,8 @@ test("renders the dashboard", async () => {
     await screen.findByRole("heading", { name: "Personal Finance" }),
   ).toBeInTheDocument();
   expect(await screen.findByText("2 open")).toBeInTheDocument();
+  expect(await screen.findByText("Economic view")).toBeInTheDocument();
+  expect(await screen.findByText("1 open / 2 flagged")).toBeInTheDocument();
 });
 
 test("submits a review decision from the inbox", async () => {

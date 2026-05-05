@@ -28,6 +28,34 @@ const transactionSchema = z.object({
 
 export type Transaction = z.infer<typeof transactionSchema>;
 
+const allocationPurposeTotalsSchema = z.object({
+  personal: z.number().int(),
+  partner: z.number().int(),
+  joint: z.number().int(),
+  friend: z.number().int(),
+  business: z.number().int(),
+  reimbursable: z.number().int(),
+  excluded: z.number().int(),
+});
+
+const monthlyReportSchema = z.object({
+  month: z.string(),
+  cashflowNetMinorUnits: z.number().int(),
+  moneyInMinorUnits: z.number().int(),
+  moneyOutMinorUnits: z.number().int(),
+  personalSpendMinorUnits: z.number().int(),
+  businessOrReimbursableMinorUnits: z.number().int(),
+  sharedSpendMinorUnits: z.number().int(),
+  allocationByPurpose: allocationPurposeTotalsSchema,
+  monthEndOutstandingByPurpose: allocationPurposeTotalsSchema,
+  monthEndCreditCardLiabilityMinorUnits: z.number().int(),
+  transactionCount: z.number().int(),
+  reviewItemCount: z.number().int(),
+  openReviewItemCount: z.number().int(),
+});
+
+export type MonthlyReport = z.infer<typeof monthlyReportSchema>;
+
 const reviewDecisionSchema = z.object({
   id: z.string(),
   reviewItemId: z.string(),
@@ -101,6 +129,16 @@ export async function fetchTransactions(): Promise<Transaction[]> {
   }
 
   return z.array(transactionSchema).parse(await response.json());
+}
+
+export async function fetchMonthlyReports(): Promise<MonthlyReport[]> {
+  const response = await fetch("/api/reports/monthly");
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch monthly reports: ${response.status}`);
+  }
+
+  return z.array(monthlyReportSchema).parse(await response.json());
 }
 
 export async function submitReviewDecision(

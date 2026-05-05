@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import {
   affectsPersonalSpend,
   calculateAllocationSummary,
+  calculateMonthlyReports,
   calculateNetPersonalSpendMinorUnits,
   classifyTransaction,
   type EntryKind,
@@ -38,10 +39,11 @@ function ledgerEntry(
   amountMinorUnits: number,
   kind: EntryKind,
   source: string,
+  postedOn = "2026-05-02",
 ) {
   return {
     id,
-    postedOn: "2026-05-02",
+    postedOn,
     description: id,
     amountMinorUnits,
     currency: "GBP" as const,
@@ -277,6 +279,128 @@ describe("allocation and settlement accounting", () => {
         allocatedMinorUnits: 10000,
       },
     ]);
+  });
+});
+
+describe("monthly reports", () => {
+  test("calculates monthly activity and month-end balances", () => {
+    const entries = [
+      ledgerEntry("salary_april", 300000, "income", "monzo", "2026-04-30"),
+      ledgerEntry(
+        "amex_groceries_april",
+        -10000,
+        "spend",
+        "amex",
+        "2026-04-12",
+      ),
+      ledgerEntry(
+        "amex_friend_dinner_april",
+        -8000,
+        "spend",
+        "amex",
+        "2026-04-18",
+      ),
+      ledgerEntry(
+        "friend_repayment_may",
+        4000,
+        "reimbursement",
+        "monzo",
+        "2026-05-03",
+      ),
+      ledgerEntry(
+        "monzo_amex_payment_may",
+        -18000,
+        "credit_card_payment",
+        "monzo",
+        "2026-05-04",
+      ),
+    ] as const;
+    const allocations: EconomicAllocation[] = [
+      allocation(
+        "groceries_personal",
+        "amex_groceries_april",
+        "personal",
+        10000,
+      ),
+      allocation(
+        "dinner_personal",
+        "amex_friend_dinner_april",
+        "personal",
+        4000,
+      ),
+      allocation(
+        "dinner_friend",
+        "amex_friend_dinner_april",
+        "friend",
+        4000,
+        "friend",
+      ),
+    ];
+    const settlements: SettlementLink[] = [
+      {
+        id: "friend_repayment_settlement",
+        settlementLedgerEntryId: "friend_repayment_may",
+        allocationId: "dinner_friend",
+        type: "reimbursement",
+        amountMinorUnits: 4000,
+      },
+      {
+        id: "amex_payment_settlement",
+        settlementLedgerEntryId: "monzo_amex_payment_may",
+        allocationId: null,
+        type: "card_payment",
+        amountMinorUnits: 18000,
+      },
+    ];
+
+    const reports = calculateMonthlyReports({
+      entries,
+      allocations,
+      settlements,
+      reviewItems: [
+        {
+          ledgerEntryId: "amex_friend_dinner_april",
+          status: "needs_review",
+        },
+        {
+          ledgerEntryId: "monzo_amex_payment_may",
+          status: "confirmed",
+        },
+      ],
+    });
+
+    expect(reports).toMatchObject([
+      {
+        month: "2026-04",
+        cashflowNetMinorUnits: 282000,
+        moneyInMinorUnits: 300000,
+        moneyOutMinorUnits: 18000,
+        personalSpendMinorUnits: 14000,
+        businessOrReimbursableMinorUnits: 0,
+        sharedSpendMinorUnits: 4000,
+        monthEndCreditCardLiabilityMinorUnits: 18000,
+        transactionCount: 3,
+        reviewItemCount: 1,
+        openReviewItemCount: 1,
+      },
+      {
+        month: "2026-05",
+        cashflowNetMinorUnits: -14000,
+        moneyInMinorUnits: 4000,
+        moneyOutMinorUnits: 18000,
+        personalSpendMinorUnits: 0,
+        businessOrReimbursableMinorUnits: 0,
+        sharedSpendMinorUnits: 0,
+        monthEndCreditCardLiabilityMinorUnits: 0,
+        transactionCount: 2,
+        reviewItemCount: 1,
+        openReviewItemCount: 0,
+      },
+    ]);
+    expect(reports[0]?.monthEndOutstandingByPurpose.friend).toBe(4000);
+    expect(reports[1]?.monthEndOutstandingByPurpose.friend).toBe(0);
+    expect(reports[0]?.allocationByPurpose.personal).toBe(14000);
+    expect(reports[0]?.allocationByPurpose.friend).toBe(4000);
   });
 });
 

@@ -139,6 +139,12 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
+.dashboard-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
 .card,
 .panel {
   background:
@@ -182,6 +188,10 @@ a {
 .panel {
   overflow-x: auto;
   padding: 28px;
+}
+
+.report-panel {
+  border-radius: 34px;
 }
 
 .error {

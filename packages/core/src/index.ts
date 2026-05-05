@@ -37,6 +37,11 @@ export type {
 } from "./rules/classification";
 export { affectsPersonalSpend } from "./rules/spending";
 export { calculateNetPersonalSpendMinorUnits } from "./reports/monthly-summary";
+export { calculateMonthlyReports } from "./reports/monthly-report";
+export type {
+  MonthlyReport,
+  MonthlyReportReviewItem,
+} from "./reports/monthly-report";
 export { entryKinds } from "./transactions/kinds";
 export type { EntryKind } from "./transactions/kinds";
 export type { LedgerEntry } from "./transactions/ledger-entry";

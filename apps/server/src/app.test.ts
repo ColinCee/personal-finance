@@ -49,6 +49,44 @@ describe("app", () => {
     }
   });
 
+  test("returns persisted monthly reports", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      seedAppReviewFixture(testDatabase.db, {
+        amountMinorUnits: -8240,
+        description: "Groceries",
+        kind: "spend",
+      });
+      testDatabase.db
+        .insert(economicAllocations)
+        .values({
+          id: "allocation_fake_1",
+          ledgerEntryId: "ledger_fake_1",
+          purpose: "personal",
+          amountMinorUnits: 8240,
+        })
+        .run();
+      const app = createApp(testDatabase.db);
+      const response = await app.request("/api/reports/monthly");
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject([
+        {
+          month: "2026-05",
+          cashflowNetMinorUnits: -8240,
+          moneyOutMinorUnits: 8240,
+          personalSpendMinorUnits: 8240,
+          transactionCount: 1,
+          reviewItemCount: 1,
+          openReviewItemCount: 1,
+        },
+      ]);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
   test("confirms a detected review item kind", async () => {
     const testDatabase = createTestDatabase();
 

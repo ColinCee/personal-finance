@@ -18,9 +18,11 @@ import { useState } from "react";
 import type { AllocationPurpose, EntryKind } from "@personal-finance/core";
 import { Button } from "@/components/ui/button";
 import {
+  fetchMonthlyReports,
   fetchTransactions,
   submitAllocationDecision,
   submitReviewDecision,
+  type MonthlyReport,
   type Transaction,
 } from "./api";
 import "./styles.css";
@@ -93,32 +95,46 @@ function RootLayout() {
 
 function Dashboard() {
   const transactions = useTransactions();
+  const monthlyReports = useMonthlyReports();
   const reviewItemCount =
     transactions.data?.filter(
       (transaction) => transaction.reviewStatus === "needs_review",
     ).length ?? 0;
-  const personalSpendMinorUnits = transactions.data
-    ?.filter((transaction) => transaction.affectsPersonalSpend)
-    .reduce((total, transaction) => total + transaction.amountMinorUnits, 0);
+  const reports = monthlyReports.data ?? [];
+  const latestReport = reports.at(-1);
 
   return (
-    <section className="grid">
-      <SummaryCard
-        label="Review inbox"
-        value={`${reviewItemCount} open`}
-        hint="Only uncertain rows need action"
+    <div className="dashboard-stack">
+      <section className="grid">
+        <SummaryCard
+          label="Review inbox"
+          value={`${reviewItemCount} open`}
+          hint="Only uncertain rows need action"
+        />
+        <SummaryCard
+          label="Latest personal spend"
+          value={formatCurrencyFromMinorUnits(
+            latestReport?.personalSpendMinorUnits ?? 0,
+          )}
+          hint={
+            latestReport ? formatMonth(latestReport.month) : "No reports yet"
+          }
+        />
+        <SummaryCard
+          label="Card liability"
+          value={formatCurrencyFromMinorUnits(
+            latestReport?.monthEndCreditCardLiabilityMinorUnits ?? 0,
+          )}
+          hint="Month-end Amex balance model"
+        />
+      </section>
+
+      <MonthlyReportsPanel
+        isError={monthlyReports.isError}
+        isLoading={monthlyReports.isLoading}
+        reports={reports}
       />
-      <SummaryCard
-        label="Net personal spend"
-        value={formatCurrencyFromMinorUnits(personalSpendMinorUnits ?? 0)}
-        hint="Fake fixture data only"
-      />
-      <SummaryCard
-        label="Current focus"
-        value="Review loop"
-        hint="Confirm the model before reports"
-      />
-    </section>
+    </div>
   );
 }
 
@@ -341,11 +357,105 @@ function useTransactions() {
   });
 }
 
+function useMonthlyReports() {
+  return useQuery({
+    queryKey: ["monthly-reports"],
+    queryFn: fetchMonthlyReports,
+  });
+}
+
+function MonthlyReportsPanel(props: {
+  reports: MonthlyReport[];
+  isLoading: boolean;
+  isError: boolean;
+}) {
+  if (props.isLoading) {
+    return <p className="panel">Loading monthly reports...</p>;
+  }
+
+  if (props.isError) {
+    return <p className="panel error">Unable to load monthly reports.</p>;
+  }
+
+  return (
+    <section className="panel report-panel">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Monthly reporting</p>
+          <h2>Economic view</h2>
+          <p>
+            Month-end balances come from reviewed allocations and settlements,
+            so Amex payments, friend splits, and business spend are not confused
+            with personal spending.
+          </p>
+        </div>
+      </div>
+
+      {props.reports.length === 0 ? (
+        <div className="empty-state">
+          <strong>No reports yet.</strong>
+          <span>
+            Import and review transactions to populate monthly reports.
+          </span>
+        </div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th>Personal</th>
+              <th>Shared</th>
+              <th>Business</th>
+              <th>Card liability</th>
+              <th>Review health</th>
+            </tr>
+          </thead>
+          <tbody>
+            {props.reports.map((report) => (
+              <tr key={report.month}>
+                <td>{formatMonth(report.month)}</td>
+                <td className="amount-cell">
+                  {formatCurrencyFromMinorUnits(report.personalSpendMinorUnits)}
+                </td>
+                <td className="amount-cell">
+                  {formatCurrencyFromMinorUnits(report.sharedSpendMinorUnits)}
+                </td>
+                <td className="amount-cell">
+                  {formatCurrencyFromMinorUnits(
+                    report.businessOrReimbursableMinorUnits,
+                  )}
+                </td>
+                <td className="amount-cell">
+                  {formatCurrencyFromMinorUnits(
+                    report.monthEndCreditCardLiabilityMinorUnits,
+                  )}
+                </td>
+                <td>
+                  {report.openReviewItemCount} open / {report.reviewItemCount}{" "}
+                  flagged
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
 function formatCurrencyFromMinorUnits(amountMinorUnits: number): string {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: "GBP",
   }).format(amountMinorUnits / 100);
+}
+
+function formatMonth(month: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(new Date(`${month}-01T00:00:00.000Z`));
 }
 
 const decisionKindOptions: { kind: EntryKind; label: string }[] = [
