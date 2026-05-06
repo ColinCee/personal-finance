@@ -26,8 +26,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -44,6 +46,19 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
   Table,
@@ -333,26 +348,30 @@ function ImportWorkspace() {
             </div>
           </div>
 
-          <label className="file-drop">
-            <span>
-              {selectedFile ? selectedFile.name : "Choose a CSV file"}
-            </span>
-            <small>
-              The browser sends the file to the local API; SQLite stays server
-              owned.
-            </small>
-            <input
-              accept=".csv,text/csv"
-              onChange={(event) => {
-                setSelectedFile(event.target.files?.[0] ?? null);
-                setPreview(null);
-                setImportCommitted(false);
-                previewMutation.reset();
-                commitMutation.reset();
-              }}
-              type="file"
-            />
-          </label>
+          <FieldGroup className="import-field-group">
+            <Field>
+              <FieldLabel htmlFor="csv-import-file">
+                Choose a CSV file
+              </FieldLabel>
+              <Input
+                accept=".csv,text/csv"
+                id="csv-import-file"
+                onChange={(event) => {
+                  setSelectedFile(event.target.files?.[0] ?? null);
+                  setPreview(null);
+                  setImportCommitted(false);
+                  previewMutation.reset();
+                  commitMutation.reset();
+                }}
+                type="file"
+              />
+              <FieldDescription>
+                {selectedFile
+                  ? `Selected: ${selectedFile.name}`
+                  : "The browser sends the file to the local API; SQLite stays server owned."}
+              </FieldDescription>
+            </Field>
+          </FieldGroup>
 
           <div className="import-actions">
             <Button
@@ -582,18 +601,18 @@ function ReviewInbox() {
         ) : null}
 
         {displayedRows.length === 0 ? (
-          <div className="empty-state">
-            <strong>
-              {activeReviewTab === "needs_action"
-                ? "Nothing needs review."
-                : "No private rules have auto-identified rows yet."}
-            </strong>
-            <span>
-              {activeReviewTab === "needs_action"
+          <AppEmpty
+            description={
+              activeReviewTab === "needs_action"
                 ? "Confirmed and auto-filed rows stay out of this queue."
-                : "Add local rules under storage to auto-file private payees without committing them."}
-            </span>
-          </div>
+                : "Add local rules under storage to auto-file private payees without committing them."
+            }
+            title={
+              activeReviewTab === "needs_action"
+                ? "Nothing needs review."
+                : "No private rules have auto-identified rows yet."
+            }
+          />
         ) : activeReviewTab === "needs_action" ? (
           <ReviewDecisionTable
             onAllocationDecision={decideAllocation}
@@ -658,6 +677,33 @@ function HeaderBadges(props: { className?: string; labels: string[] }) {
   );
 }
 
+function MetricGrid(props: {
+  className?: string;
+  items: Array<{ label: string; value: ReactNode }>;
+}) {
+  return (
+    <dl className={cn("metric-grid", props.className)}>
+      {props.items.map((item) => (
+        <div key={item.label}>
+          <dt>{item.label}</dt>
+          <dd>{item.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function AppEmpty(props: { description: string; title: string }) {
+  return (
+    <Empty className="app-empty">
+      <EmptyHeader>
+        <EmptyTitle>{props.title}</EmptyTitle>
+        <EmptyDescription>{props.description}</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  );
+}
+
 function ImportPreviewPanel(props: {
   importCommitted: boolean;
   isImporting: boolean;
@@ -667,13 +713,10 @@ function ImportPreviewPanel(props: {
   if (!props.preview) {
     return (
       <section className="panel import-preview-panel">
-        <div className="empty-state">
-          <strong>Waiting for a file.</strong>
-          <span>
-            Choose a CSV and the app will detect the bank before showing the
-            import decision.
-          </span>
-        </div>
+        <AppEmpty
+          description="Choose a CSV and the app will detect the bank before showing the import decision."
+          title="Waiting for a file."
+        />
       </section>
     );
   }
@@ -695,55 +738,59 @@ function ImportPreviewPanel(props: {
         </div>
       </div>
 
-      <div className="import-decision-card">
-        <span className="decision-count">
-          {props.preview.alreadyImported
-            ? props.preview.duplicateRowCount
-            : props.preview.reviewItemCount}
-        </span>
-        <div>
-          <h3>
+      <Card className="import-decision-card" size="sm">
+        <CardHeader>
+          <CardTitle>
             {importPreviewDecisionHeading(props.preview, props.importCommitted)}
-          </h3>
-          <p>
+          </CardTitle>
+          <CardDescription>
             {importPreviewDecisionCopy(
               props.preview,
               autoFiledCount,
               props.importCommitted,
             )}
-          </p>
-        </div>
+          </CardDescription>
+          <CardAction>
+            <HeaderStats
+              items={[
+                {
+                  label: props.preview.alreadyImported
+                    ? "duplicates"
+                    : "review",
+                  value: props.preview.alreadyImported
+                    ? props.preview.duplicateRowCount
+                    : props.preview.reviewItemCount,
+                },
+              ]}
+            />
+          </CardAction>
+        </CardHeader>
         {!props.preview.alreadyImported && !props.importCommitted ? (
-          <Button
-            disabled={props.isImporting}
-            onClick={props.onCommit}
-            type="button"
-          >
-            {props.isImporting ? "Importing..." : "Import to ledger"}
-          </Button>
+          <CardFooter>
+            <Button
+              disabled={props.isImporting}
+              onClick={props.onCommit}
+              type="button"
+            >
+              {props.isImporting ? "Importing..." : "Import to ledger"}
+            </Button>
+          </CardFooter>
         ) : null}
-      </div>
+      </Card>
 
-      <dl className="import-facts">
-        <div>
-          <dt>Total rows</dt>
-          <dd>{props.preview.rowCount}</dd>
-        </div>
-        <div>
-          <dt>Auto-filed</dt>
-          <dd>{autoFiledCount}</dd>
-        </div>
-        <div>
-          <dt>Net cashflow</dt>
-          <dd>
-            {formatCurrencyFromMinorUnits(props.preview.netAmountMinorUnits)}
-          </dd>
-        </div>
-        <div>
-          <dt>Duplicates</dt>
-          <dd>{props.preview.duplicateRowCount}</dd>
-        </div>
-      </dl>
+      <MetricGrid
+        items={[
+          { label: "Total rows", value: props.preview.rowCount },
+          { label: "Auto-filed", value: autoFiledCount },
+          {
+            label: "Net cashflow",
+            value: formatCurrencyFromMinorUnits(
+              props.preview.netAmountMinorUnits,
+            ),
+          },
+          { label: "Duplicates", value: props.preview.duplicateRowCount },
+        ]}
+      />
     </section>
   );
 }
@@ -779,35 +826,39 @@ function ImportHistoryPanel(props: {
       </div>
 
       {props.history.length === 0 ? (
-        <div className="empty-state">
-          <strong>No imports yet.</strong>
-          <span>Preview and commit a CSV to start the ledger.</span>
-        </div>
+        <AppEmpty
+          description="Preview and commit a CSV to start the ledger."
+          title="No imports yet."
+        />
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>File</th>
-              <th>Source</th>
-              <th>Rows</th>
-              <th>Imported</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.history.map((item) => (
-              <tr key={item.id}>
-                <td>{item.originalFileName}</td>
-                <td>{formatFileImportSource(item.source)}</td>
-                <td>{item.rowCount}</td>
-                <td>{formatTimestamp(item.importedAt)}</td>
-                <td>
-                  <span className="resolved-label">{item.status}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Card className="data-table-card" size="sm">
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>File</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Rows</TableHead>
+                  <TableHead>Imported</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {props.history.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{item.originalFileName}</TableCell>
+                    <TableCell>{formatFileImportSource(item.source)}</TableCell>
+                    <TableCell>{item.rowCount}</TableCell>
+                    <TableCell>{formatTimestamp(item.importedAt)}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{item.status}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </section>
   );
@@ -1194,11 +1245,17 @@ type AllocationChoice = {
 
 function SummaryCard(props: { label: string; value: string; hint?: string }) {
   return (
-    <article className="card">
-      <span>{props.label}</span>
-      <strong>{props.value}</strong>
-      {props.hint ? <small>{props.hint}</small> : null}
-    </article>
+    <Card className="summary-card" size="sm">
+      <CardHeader>
+        <CardDescription>{props.label}</CardDescription>
+        <CardTitle>{props.value}</CardTitle>
+      </CardHeader>
+      {props.hint ? (
+        <CardContent>
+          <p>{props.hint}</p>
+        </CardContent>
+      ) : null}
+    </Card>
   );
 }
 
@@ -1244,60 +1301,64 @@ function MonthlyReportsPanel(props: {
       </div>
 
       {props.reports.length === 0 ? (
-        <div className="empty-state">
-          <strong>No reports yet.</strong>
-          <span>
-            Import and review transactions to populate monthly reports.
-          </span>
-        </div>
+        <AppEmpty
+          description="Import and review transactions to populate monthly reports."
+          title="No reports yet."
+        />
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Month</th>
-              <th>Actual spend</th>
-              <th>Awaiting repayment</th>
-              <th>Moved / saved</th>
-              <th>Income</th>
-              <th>Unresolved</th>
-              <th>Review health</th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.reports.map((report) => (
-              <tr key={report.month}>
-                <td>{formatMonth(report.month)}</td>
-                <td className="amount-cell">
-                  {formatCurrencyFromMinorUnits(
-                    report.actualPersonalSpendMinorUnits,
-                  )}
-                </td>
-                <td className="amount-cell">
-                  {formatCurrencyFromMinorUnits(
-                    report.sharedAwaitingRepaymentMinorUnits,
-                  )}
-                </td>
-                <td className="amount-cell">
-                  {formatCurrencyFromMinorUnits(report.movedOrSavedMinorUnits)}
-                </td>
-                <td className="amount-cell">
-                  {formatCurrencyFromMinorUnits(
-                    report.incomeNewMoneyMinorUnits,
-                  )}
-                </td>
-                <td className="amount-cell">
-                  {formatCurrencyFromMinorUnits(
-                    report.unresolvedImpactMinorUnits,
-                  )}
-                </td>
-                <td>
-                  {report.openReviewItemCount} open / {report.reviewItemCount}{" "}
-                  flagged
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Card className="data-table-card" size="sm">
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Month</TableHead>
+                  <TableHead>Actual spend</TableHead>
+                  <TableHead>Awaiting repayment</TableHead>
+                  <TableHead>Moved / saved</TableHead>
+                  <TableHead>Income</TableHead>
+                  <TableHead>Unresolved</TableHead>
+                  <TableHead>Review health</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {props.reports.map((report) => (
+                  <TableRow key={report.month}>
+                    <TableCell>{formatMonth(report.month)}</TableCell>
+                    <TableCell className="amount-cell">
+                      {formatCurrencyFromMinorUnits(
+                        report.actualPersonalSpendMinorUnits,
+                      )}
+                    </TableCell>
+                    <TableCell className="amount-cell">
+                      {formatCurrencyFromMinorUnits(
+                        report.sharedAwaitingRepaymentMinorUnits,
+                      )}
+                    </TableCell>
+                    <TableCell className="amount-cell">
+                      {formatCurrencyFromMinorUnits(
+                        report.movedOrSavedMinorUnits,
+                      )}
+                    </TableCell>
+                    <TableCell className="amount-cell">
+                      {formatCurrencyFromMinorUnits(
+                        report.incomeNewMoneyMinorUnits,
+                      )}
+                    </TableCell>
+                    <TableCell className="amount-cell">
+                      {formatCurrencyFromMinorUnits(
+                        report.unresolvedImpactMinorUnits,
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {report.openReviewItemCount} open /{" "}
+                      {report.reviewItemCount} flagged
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </section>
   );
