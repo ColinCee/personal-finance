@@ -49,6 +49,7 @@ describe("app", () => {
           source: "fake-monzo",
           reviewItemId: "review_fake_1",
           reviewStatus: "needs_review",
+          reviewReason: "fixture_import",
           affectsPersonalSpend: true,
         },
       ]);
@@ -90,6 +91,52 @@ describe("app", () => {
           openReviewItemCount: 1,
         },
       ]);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("reloads private rules and applies them to existing review rows", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      seedAppReviewFixture(testDatabase.db, {
+        amountMinorUnits: 2199,
+        description: "Household subscription repayment",
+        kind: "income",
+      });
+      const app = createApp(testDatabase.db, {
+        localClassificationRulesProvider: () => [
+          {
+            id: "household-repayments",
+            label: "Household repayments",
+            match: {
+              amountDirection: "money_in",
+              descriptionContains: ["household subscription"],
+            },
+            classifyAs: "reimbursement",
+          },
+        ],
+      });
+      const response = await app.request(
+        "/api/local-classification-rules/apply",
+        { method: "POST" },
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        ruleCount: 1,
+        matchedTransactionCount: 1,
+        resolvedReviewItemCount: 1,
+        updatedLedgerEntryCount: 1,
+      });
+      expect(testDatabase.db.select().from(ledgerEntries).get()).toMatchObject({
+        kind: "reimbursement",
+      });
+      expect(testDatabase.db.select().from(reviewItems).get()).toMatchObject({
+        reason: "private_rule:household-repayments",
+        status: "confirmed",
+      });
     } finally {
       testDatabase.cleanup();
     }

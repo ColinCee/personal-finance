@@ -353,6 +353,11 @@ Goal: reduce manual review over time while keeping uncertain matches visible.
 - Add reimbursement matching.
 - Add joint split defaults.
 - Apply rules during import while still surfacing uncertain matches for review.
+- Support ignored local classification rules in `storage/classification-rules.json` for user-specific
+  payees, friend repayments, and private income sources. Keep these rules private, inspectable, and
+  reloadable from the Review page rather than hardcoding names into public defaults.
+- Follow-up: malformed local rules JSON should return a clean API-level `400` with Zod validation
+  issues when reloading rules, instead of surfacing as a generic server error.
 
 Validation:
 
@@ -362,6 +367,8 @@ Validation:
   net personal cost.
 - Import tests show confident matches skip unnecessary review while uncertain matches still create
   review items.
+- Private-rule tests prove ignored local rules can auto-identify existing and newly imported rows,
+  move matches into the Auto-identified review tab, and never require committing real names or exports.
 - Rule changes include before/after examples in test names or fixtures so future failures explain the
   financial behavior that changed.
 

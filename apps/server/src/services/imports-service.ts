@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 
 import {
-  classifyTransaction,
+  classifyTransactionWithLocalRules,
   detectFileImportSource,
   type FileImportSource,
+  type LocalClassificationRule,
   type NormalizedTransactionInput,
+  type TransactionClassification,
   parseAmexTransactionsCsv,
   parseFixtureTransactionsCsv,
   parseMonzoTransactionsCsv,
@@ -56,12 +58,22 @@ export type CsvImportInput = {
 
 export function createImportsService(
   importsRepository: ImportsRepository,
+  options: {
+    localClassificationRules?: readonly LocalClassificationRule[];
+    localClassificationRulesProvider?: () => readonly LocalClassificationRule[];
+  } = {},
 ): ImportsService {
+  const getLocalClassificationRules = () =>
+    options.localClassificationRulesProvider?.() ??
+    options.localClassificationRules ??
+    [];
+
   return {
-    previewCsvImport: (input) => previewCsvImport(input, importsRepository),
+    previewCsvImport: (input) =>
+      previewCsvImport(input, importsRepository, getLocalClassificationRules()),
 
     importCsv: (input) => {
-      const parsedImport = parseCsvImport(input);
+      const parsedImport = parseCsvImport(input, getLocalClassificationRules());
       const preview = summarizeImport(parsedImport, importsRepository);
       const result = importsRepository.importTransactions({
         importId: parsedImport.importId,
@@ -80,11 +92,14 @@ export function createImportsService(
 
     importFixtureCsv: (input) =>
       importsRepository.importTransactions({
-        ...parseCsvImport({
-          csv: input.csv,
-          originalFileName: input.originalFileName,
-          source: "fixture_csv",
-        }),
+        ...parseCsvImport(
+          {
+            csv: input.csv,
+            originalFileName: input.originalFileName,
+            source: "fixture_csv",
+          },
+          getLocalClassificationRules(),
+        ),
         originalFileName: input.originalFileName,
         source: "fixture_csv",
       }),
@@ -96,19 +111,31 @@ export function createImportsService(
 function previewCsvImport(
   input: CsvImportInput,
   importsRepository: ImportsRepository,
+  localClassificationRules: readonly LocalClassificationRule[],
 ) {
-  return summarizeImport(parseCsvImport(input), importsRepository);
+  return summarizeImport(
+    parseCsvImport(input, localClassificationRules),
+    importsRepository,
+  );
 }
+
+export type ClassifiedNormalizedTransactionInput =
+  NormalizedTransactionInput & {
+    classification: TransactionClassification;
+  };
 
 type ParsedCsvImport = {
   importId: string;
   fileSha256: string;
   originalFileName: string;
   source: FileImportSource;
-  transactions: NormalizedTransactionInput[];
+  transactions: ClassifiedNormalizedTransactionInput[];
 };
 
-function parseCsvImport(input: CsvImportInput): ParsedCsvImport {
+function parseCsvImport(
+  input: CsvImportInput,
+  localClassificationRules: readonly LocalClassificationRule[],
+): ParsedCsvImport {
   const source = input.source ?? detectFileImportSource(input.csv);
   const fileSha256 = sha256(input.csv);
   const importId = `import_${source}_${fileSha256.slice(0, 16)}`;
@@ -118,7 +145,13 @@ function parseCsvImport(input: CsvImportInput): ParsedCsvImport {
     fileSha256,
     originalFileName: input.originalFileName,
     source,
-    transactions: parseTransactions(source, input.csv),
+    transactions: parseTransactions(source, input.csv).map((transaction) => ({
+      ...transaction,
+      classification: classifyTransactionWithLocalRules(
+        transaction,
+        localClassificationRules,
+      ),
+    })),
   };
 }
 
@@ -163,7 +196,7 @@ function summarizeImport(
     .map((transaction) => transaction.postedOn)
     .sort();
   const reviewItemCount = parsedImport.transactions.filter(
-    (transaction) => classifyTransaction(transaction).reviewRequired,
+    (transaction) => transaction.classification.reviewRequired,
   ).length;
 
   return {

@@ -4,6 +4,11 @@ import type {
   SettlementLink,
 } from "../allocations/economic-allocation";
 import { allocationPurposes } from "../allocations/economic-allocation";
+import {
+  calculateEconomicEffectTotals,
+  deriveEconomicEffects,
+  type EconomicEffectTotals,
+} from "../effects/economic-effect";
 import type { MinorUnitAmount } from "../money/amount";
 import type { LedgerEntry } from "../transactions/ledger-entry";
 import type { ReviewStatus } from "../transactions/review";
@@ -18,9 +23,18 @@ export type MonthlyReport = {
   cashflowNetMinorUnits: MinorUnitAmount;
   moneyInMinorUnits: MinorUnitAmount;
   moneyOutMinorUnits: MinorUnitAmount;
+  actualPersonalSpendMinorUnits: MinorUnitAmount;
   personalSpendMinorUnits: MinorUnitAmount;
   businessOrReimbursableMinorUnits: MinorUnitAmount;
   sharedSpendMinorUnits: MinorUnitAmount;
+  sharedAwaitingRepaymentMinorUnits: MinorUnitAmount;
+  movedOrSavedMinorUnits: MinorUnitAmount;
+  incomeNewMoneyMinorUnits: MinorUnitAmount;
+  notPersonalBudgetMinorUnits: MinorUnitAmount;
+  creditCardPaymentMinorUnits: MinorUnitAmount;
+  refundOrRepaymentMinorUnits: MinorUnitAmount;
+  unresolvedImpactMinorUnits: MinorUnitAmount;
+  economicEffectTotals: EconomicEffectTotals;
   allocationByPurpose: Record<AllocationPurpose, MinorUnitAmount>;
   monthEndOutstandingByPurpose: Record<AllocationPurpose, MinorUnitAmount>;
   monthEndCreditCardLiabilityMinorUnits: MinorUnitAmount;
@@ -60,10 +74,29 @@ export function calculateMonthlyReports(input: {
     const monthlyAllocations = input.allocations.filter((allocation) =>
       monthlyEntryIds.has(allocation.ledgerEntryId),
     );
+    const monthlySettlements = input.settlements.filter((settlement) =>
+      monthlyEntryIds.has(settlement.settlementLedgerEntryId),
+    );
+    const monthlyReviewItems = input.reviewItems.filter((item) =>
+      monthlyEntryIds.has(item.ledgerEntryId),
+    );
+    const monthlyEffectTotals = calculateEconomicEffectTotals(
+      deriveEconomicEffects({
+        entries: monthlyEntries,
+        allocations: monthlyAllocations,
+        settlements: monthlySettlements,
+        reviewItems: monthlyReviewItems,
+      }),
+    );
     const monthEndEntryIds = new Set(
       input.entries
         .filter((entry) => monthFromDate(entry.postedOn) <= month)
         .map((entry) => entry.id),
+    );
+    const monthEndOutstandingByPurpose = calculateMonthEndOutstandingByPurpose(
+      input.allocations,
+      input.settlements,
+      monthEndEntryIds,
     );
 
     return {
@@ -85,6 +118,7 @@ export function calculateMonthlyReports(input: {
         monthlyAllocations,
         "personal",
       ),
+      actualPersonalSpendMinorUnits: monthlyEffectTotals.personal_spend,
       businessOrReimbursableMinorUnits:
         sumAllocationsByPurpose(monthlyAllocations, "business") +
         sumAllocationsByPurpose(monthlyAllocations, "reimbursable"),
@@ -93,12 +127,25 @@ export function calculateMonthlyReports(input: {
           .filter((allocation) => sharedPurposes.has(allocation.purpose))
           .map((allocation) => allocation.amountMinorUnits),
       ),
-      allocationByPurpose: allocationTotalsByPurpose(monthlyAllocations),
-      monthEndOutstandingByPurpose: calculateMonthEndOutstandingByPurpose(
-        input.allocations,
-        input.settlements,
-        monthEndEntryIds,
+      sharedAwaitingRepaymentMinorUnits: sum(
+        ["partner", "joint", "friend"].map(
+          (purpose) =>
+            monthEndOutstandingByPurpose[purpose as AllocationPurpose],
+        ),
       ),
+      movedOrSavedMinorUnits:
+        monthlyEffectTotals.transfer +
+        monthlyEffectTotals.saving +
+        monthlyEffectTotals.investment,
+      incomeNewMoneyMinorUnits: monthlyEffectTotals.income,
+      notPersonalBudgetMinorUnits: monthlyEffectTotals.not_personal_budget,
+      creditCardPaymentMinorUnits: monthlyEffectTotals.credit_card_payment,
+      refundOrRepaymentMinorUnits:
+        monthlyEffectTotals.refund + monthlyEffectTotals.receivable_settled,
+      unresolvedImpactMinorUnits: monthlyEffectTotals.uncertain,
+      economicEffectTotals: monthlyEffectTotals,
+      allocationByPurpose: allocationTotalsByPurpose(monthlyAllocations),
+      monthEndOutstandingByPurpose,
       monthEndCreditCardLiabilityMinorUnits:
         calculateMonthEndCreditCardLiability(
           input.entries,
@@ -107,13 +154,9 @@ export function calculateMonthlyReports(input: {
           month,
         ),
       transactionCount: monthlyEntries.length,
-      reviewItemCount: input.reviewItems.filter((item) =>
-        monthlyEntryIds.has(item.ledgerEntryId),
-      ).length,
-      openReviewItemCount: input.reviewItems.filter(
-        (item) =>
-          monthlyEntryIds.has(item.ledgerEntryId) &&
-          item.status === "needs_review",
+      reviewItemCount: monthlyReviewItems.length,
+      openReviewItemCount: monthlyReviewItems.filter(
+        (item) => item.status === "needs_review",
       ).length,
     };
   });

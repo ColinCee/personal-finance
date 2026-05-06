@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
@@ -14,6 +20,7 @@ const fakeTransactions = [
     source: "fake-amex",
     reviewItemId: "review_fake_1",
     reviewStatus: "needs_review",
+    reviewReason: "credit_card_payment",
     affectsPersonalSpend: false,
   },
   {
@@ -26,6 +33,7 @@ const fakeTransactions = [
     source: "fake-amex",
     reviewItemId: "review_fake_2",
     reviewStatus: "needs_review",
+    reviewReason: "ordinary_spend",
     affectsPersonalSpend: true,
   },
   {
@@ -38,7 +46,34 @@ const fakeTransactions = [
     source: "fake-monzo",
     reviewItemId: null,
     reviewStatus: "confirmed",
+    reviewReason: null,
     affectsPersonalSpend: true,
+  },
+  {
+    id: "txn_fake_4",
+    postedOn: "2026-05-05",
+    description: "Shared subscription payment",
+    amountMinorUnits: 2199,
+    currency: "GBP",
+    kind: "income",
+    source: "fake-monzo",
+    reviewItemId: "review_fake_4",
+    reviewStatus: "needs_review",
+    reviewReason: "positive_amount_uncertain",
+    affectsPersonalSpend: false,
+  },
+  {
+    id: "txn_fake_5",
+    postedOn: "2026-05-06",
+    description: "Household subscription repayment",
+    amountMinorUnits: 2199,
+    currency: "GBP",
+    kind: "reimbursement",
+    source: "fake-monzo",
+    reviewItemId: "review_fake_5",
+    reviewStatus: "confirmed",
+    reviewReason: "private_rule:household-repayments",
+    affectsPersonalSpend: false,
   },
 ];
 
@@ -48,9 +83,31 @@ const fakeMonthlyReports = [
     cashflowNetMinorUnits: -14000,
     moneyInMinorUnits: 4000,
     moneyOutMinorUnits: 18000,
+    actualPersonalSpendMinorUnits: 14000,
     personalSpendMinorUnits: 14000,
     businessOrReimbursableMinorUnits: 30000,
     sharedSpendMinorUnits: 4000,
+    sharedAwaitingRepaymentMinorUnits: 4000,
+    movedOrSavedMinorUnits: 25000,
+    incomeNewMoneyMinorUnits: 300000,
+    notPersonalBudgetMinorUnits: 30000,
+    creditCardPaymentMinorUnits: 250000,
+    refundOrRepaymentMinorUnits: 4000,
+    unresolvedImpactMinorUnits: 8000,
+    economicEffectTotals: {
+      personal_spend: 14000,
+      shared_spend: 4000,
+      receivable_created: 34000,
+      receivable_settled: 4000,
+      refund: 0,
+      transfer: 25000,
+      saving: 0,
+      investment: 0,
+      credit_card_payment: 250000,
+      income: 300000,
+      not_personal_budget: 30000,
+      uncertain: 8000,
+    },
     allocationByPurpose: {
       personal: 14000,
       partner: 0,
@@ -202,6 +259,19 @@ beforeEach(() => {
       };
     }
 
+    if (method === "POST" && url === "/api/local-classification-rules/apply") {
+      return {
+        ok: true,
+        json: async () => ({
+          ruleCount: 2,
+          matchedTransactionCount: 3,
+          createdReviewItemCount: 1,
+          resolvedReviewItemCount: 2,
+          updatedLedgerEntryCount: 3,
+        }),
+      };
+    }
+
     if (method === "GET" && url === "/api/transactions") {
       return {
         ok: true,
@@ -225,7 +295,7 @@ test("renders the dashboard", async () => {
   expect(
     await screen.findByRole("heading", { name: "Economic overview" }),
   ).toBeInTheDocument();
-  expect(await screen.findByText("2 open")).toBeInTheDocument();
+  expect(await screen.findByText("3 open")).toBeInTheDocument();
   expect(await screen.findByText("Economic view")).toBeInTheDocument();
   expect(await screen.findByText("1 open / 2 flagged")).toBeInTheDocument();
 });
@@ -237,9 +307,10 @@ test("submits a review decision from the inbox", async () => {
   expect(await screen.findByText("Amex payment")).toBeInTheDocument();
   expect(screen.queryByText("Coffee")).not.toBeInTheDocument();
 
+  fireEvent.click(screen.getAllByText("Other choices")[0]);
   fireEvent.click(
     screen.getByRole("button", {
-      name: "Confirm credit-card payment",
+      name: "Use credit-card payment",
     }),
   );
 
@@ -350,9 +421,10 @@ test("submits a split allocation from the inbox", async () => {
   window.history.pushState({}, "", "/review");
   render(<App />);
 
+  fireEvent.click((await screen.findAllByText("Other choices"))[1]);
   fireEvent.click(
-    await screen.findByRole("button", {
-      name: "Friend 50/50",
+    screen.getByRole("button", {
+      name: "Shared 50/50 - friend owes me",
     }),
   );
 
@@ -383,4 +455,54 @@ test("submits a split allocation from the inbox", async () => {
       }),
     }),
   );
+});
+
+test("recommends repayment before income for positive credits", async () => {
+  window.history.pushState({}, "", "/review");
+  render(<App />);
+
+  const subscriptionTransaction = await screen.findByText(
+    "Shared subscription payment",
+  );
+  const subscriptionCard = subscriptionTransaction.closest("article");
+
+  if (!subscriptionCard) {
+    throw new Error("Shared subscription transaction card was not rendered.");
+  }
+
+  expect(
+    within(subscriptionCard).getByRole("button", {
+      name: "Treat as refund or repayment",
+    }),
+  ).toBeInTheDocument();
+});
+
+test("shows private-rule matches in the auto-identified tab", async () => {
+  window.history.pushState({}, "", "/review");
+  render(<App />);
+
+  fireEvent.click(await screen.findByRole("tab", { name: /Auto-identified/ }));
+
+  expect(
+    await screen.findByText("Household subscription repayment"),
+  ).toBeInTheDocument();
+  expect(await screen.findByText("Auto-filed")).toBeInTheDocument();
+  expect(await screen.findByText("refund or repayment")).toBeInTheDocument();
+});
+
+test("reloads private rules from the review page", async () => {
+  window.history.pushState({}, "", "/review");
+  render(<App />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Reload rules" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/local-classification-rules/apply",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+  expect(
+    await screen.findByText(/Applied 2 private rules/),
+  ).toBeInTheDocument();
 });

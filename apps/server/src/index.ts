@@ -4,13 +4,17 @@ import { loadServerConfig } from "./config/env";
 import { createDatabaseConnection } from "./db/client";
 import { runMigrations } from "./db/migrate";
 import { createApp } from "./app";
+import { loadLocalClassificationRules } from "./services/local-classification-rules";
 
 const config = loadServerConfig();
 const connection = createDatabaseConnection(config.databasePath);
 
 runMigrations(connection.db);
 
-const app = createApp(connection.db);
+const app = createApp(connection.db, {
+  localClassificationRulesProvider: () =>
+    loadLocalClassificationRules(config.localClassificationRulesPath),
+});
 
 serve(
   {

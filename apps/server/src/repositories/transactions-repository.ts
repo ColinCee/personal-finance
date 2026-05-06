@@ -2,12 +2,14 @@ import { desc, eq, sql } from "drizzle-orm";
 
 import {
   affectsPersonalSpend,
+  classifyTransactionWithLocalRules,
   reviewDecisionActionForKind,
   type ReviewTransaction,
 } from "@personal-finance/core";
 import type {
   AllocationPurpose,
   EntryKind,
+  LocalClassificationRule,
   ReviewDecision,
   SettlementType,
 } from "@personal-finance/core";
@@ -28,10 +30,21 @@ import {
 
 export type TransactionsRepository = {
   listReviewTransactions: () => ReviewTransaction[];
+  applyLocalClassificationRules: (
+    rules: readonly LocalClassificationRule[],
+  ) => ApplyLocalClassificationRulesResult;
   appendReviewDecision: (decision: NewReviewDecision) => ReviewDecision;
   appendAllocationDecision: (
     decision: NewAllocationDecision,
   ) => AllocationDecisionResult;
+};
+
+export type ApplyLocalClassificationRulesResult = {
+  ruleCount: number;
+  matchedTransactionCount: number;
+  createdReviewItemCount: number;
+  resolvedReviewItemCount: number;
+  updatedLedgerEntryCount: number;
 };
 
 export type NewReviewDecision = {
@@ -77,6 +90,18 @@ type ReviewItemForDecision = {
   amountMinorUnits?: number;
 };
 
+type LedgerEntryForLocalRule = {
+  id: string;
+  postedOn: string;
+  description: string;
+  amountMinorUnits: number;
+  currency: "GBP";
+  kind: EntryKind;
+  source: "fake-amex" | "fake-monzo" | "amex" | "monzo";
+  reviewItemId: string | null;
+  reviewStatus: "needs_review" | "confirmed" | null;
+};
+
 export function createTransactionsRepository(
   db: AppDatabase,
 ): TransactionsRepository {
@@ -93,6 +118,7 @@ export function createTransactionsRepository(
           source: ledgerEntries.source,
           reviewItemId: reviewItems.id,
           reviewStatus: reviewItems.status,
+          reviewReason: reviewItems.reason,
         })
         .from(ledgerEntries)
         .leftJoin(reviewItems, eq(reviewItems.ledgerEntryId, ledgerEntries.id))
@@ -101,8 +127,127 @@ export function createTransactionsRepository(
         .map((entry) => ({
           ...entry,
           reviewStatus: entry.reviewStatus ?? "confirmed",
+          reviewReason: entry.reviewReason ?? null,
           affectsPersonalSpend: affectsPersonalSpend(entry),
         })),
+    applyLocalClassificationRules: (rules) => {
+      const activeRuleCount = rules.filter(
+        (rule) => rule.enabled !== false,
+      ).length;
+
+      if (activeRuleCount === 0) {
+        return {
+          ruleCount: 0,
+          matchedTransactionCount: 0,
+          createdReviewItemCount: 0,
+          resolvedReviewItemCount: 0,
+          updatedLedgerEntryCount: 0,
+        };
+      }
+
+      return db.transaction((transaction) => {
+        let matchedTransactionCount = 0;
+        let createdReviewItemCount = 0;
+        let resolvedReviewItemCount = 0;
+        let updatedLedgerEntryCount = 0;
+        const candidates = transaction
+          .select({
+            id: ledgerEntries.id,
+            postedOn: ledgerEntries.postedOn,
+            description: ledgerEntries.description,
+            amountMinorUnits: ledgerEntries.amountMinorUnits,
+            currency: ledgerEntries.currency,
+            kind: ledgerEntries.kind,
+            source: ledgerEntries.source,
+            reviewItemId: reviewItems.id,
+            reviewStatus: reviewItems.status,
+          })
+          .from(ledgerEntries)
+          .leftJoin(
+            reviewItems,
+            eq(reviewItems.ledgerEntryId, ledgerEntries.id),
+          )
+          .all()
+          .filter(
+            (entry) =>
+              entry.reviewItemId === null ||
+              entry.reviewStatus === "needs_review",
+          ) as LedgerEntryForLocalRule[];
+
+        for (const entry of candidates) {
+          const classification = classifyTransactionWithLocalRules(
+            entry,
+            rules,
+          );
+
+          if (!classification.matchedRule || classification.reviewRequired) {
+            continue;
+          }
+
+          matchedTransactionCount += 1;
+
+          if (classification.kind !== entry.kind) {
+            updatedLedgerEntryCount += 1;
+            transaction
+              .update(ledgerEntries)
+              .set({ kind: classification.kind })
+              .where(eq(ledgerEntries.id, entry.id))
+              .run();
+          }
+
+          const reviewItemId =
+            entry.reviewItemId ?? `review_private_${entry.id}`;
+          const reviewReason = `private_rule:${classification.matchedRule.id}`;
+
+          if (entry.reviewItemId) {
+            resolvedReviewItemCount += 1;
+            transaction
+              .update(reviewItems)
+              .set({
+                reason: reviewReason,
+                status: "confirmed",
+                resolvedAt: sql`CURRENT_TIMESTAMP`,
+              })
+              .where(eq(reviewItems.id, reviewItemId))
+              .run();
+          } else {
+            createdReviewItemCount += 1;
+            transaction
+              .insert(reviewItems)
+              .values({
+                id: reviewItemId,
+                ledgerEntryId: entry.id,
+                status: "confirmed",
+                reason: reviewReason,
+                resolvedAt: sql`CURRENT_TIMESTAMP`,
+              })
+              .run();
+          }
+
+          transaction
+            .insert(reviewDecisions)
+            .values({
+              id: `review_decision_private_${reviewItemId}`,
+              reviewItemId,
+              action: reviewDecisionActionForKind(
+                entry.kind,
+                classification.kind,
+              ),
+              decidedKind: classification.kind,
+              note: "Auto-identified by private local rule.",
+            })
+            .run();
+        }
+
+        return {
+          ruleCount: activeRuleCount,
+          matchedTransactionCount,
+          createdReviewItemCount,
+          resolvedReviewItemCount,
+          updatedLedgerEntryCount,
+        };
+      });
+    },
     appendReviewDecision: (decision) =>
       db.transaction((transaction) => {
         const reviewItem = transaction

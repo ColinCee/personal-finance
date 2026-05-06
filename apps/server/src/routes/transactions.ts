@@ -49,6 +49,10 @@ export function createTransactionsRoutes(
     context.json(transactionsService.listReviewTransactions()),
   );
 
+  routes.post("/local-classification-rules/apply", (context) =>
+    context.json(transactionsService.applyLocalClassificationRules(), 200),
+  );
+
   routes.post("/review-items/:reviewItemId/decisions", async (context) => {
     const payload = reviewDecisionPayloadSchema.safeParse(
       await context.req.json(),

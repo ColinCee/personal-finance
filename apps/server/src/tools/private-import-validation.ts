@@ -3,7 +3,7 @@ import { extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
-  classifyTransaction,
+  classifyTransactionWithLocalRules,
   minorUnitsToMajorUnits,
   parseAmexTransactionsCsv,
   parseMonzoTransactionsCsv,
@@ -12,6 +12,7 @@ import type {
   ClassificationConfidence,
   ClassificationReason,
   EntryKind,
+  LocalClassificationRule,
   NormalizedTransactionInput,
   TransactionClassification,
 } from "@personal-finance/core";
@@ -19,6 +20,7 @@ import { createDatabaseConnection } from "../db/client";
 import { runMigrations } from "../db/migrate";
 import { createImportsRepository } from "../repositories/imports-repository";
 import { createImportsService } from "../services/imports-service";
+import { loadLocalClassificationRules } from "../services/local-classification-rules";
 
 type ImportSourceKind = "amex" | "monzo";
 
@@ -109,10 +111,13 @@ const classificationReasons: readonly ClassificationReason[] = [
   "salary_income",
   "credit_card_payment",
   "internal_transfer",
+  "saving_or_investment_movement",
+  "shared_repayment",
   "reimbursement",
   "split_settlement",
   "source_supplied_kind",
   "positive_amount_uncertain",
+  "private_rule",
 ];
 
 const classificationConfidences: readonly ClassificationConfidence[] = [
@@ -128,6 +133,9 @@ export function validatePrivateImports(
   storagePath = resolve(repositoryRoot, "storage"),
 ): PrivateImportValidationSummary {
   const csvFiles = findCsvFiles(storagePath);
+  const localClassificationRules = loadLocalClassificationRules(
+    join(storagePath, "classification-rules.json"),
+  );
   const issues: ValidationIssue[] = [];
 
   if (csvFiles.length === 0) {
@@ -138,7 +146,7 @@ export function validatePrivateImports(
   }
 
   const files = csvFiles.map((filePath, index) =>
-    summarizeFile(filePath, index, issues),
+    summarizeFile(filePath, index, issues, localClassificationRules),
   );
   const allTransactions = files.flatMap((file) => file.transactions);
   const amexSpendOut = sumMoney(
@@ -179,6 +187,7 @@ function summarizeFile(
   filePath: string,
   index: number,
   issues: ValidationIssue[],
+  localClassificationRules: readonly LocalClassificationRule[],
 ): PrivateImportFileSummary & { transactions: ClassifiedTransaction[] } {
   const csv = readFileSync(filePath, "utf8");
   const source = detectSource(csv);
@@ -188,7 +197,10 @@ function summarizeFile(
       : parseMonzoTransactionsCsv(csv);
   const transactions = parsedTransactions.map((transaction) => ({
     ...transaction,
-    classification: classifyTransaction(transaction),
+    classification: classifyTransactionWithLocalRules(
+      transaction,
+      localClassificationRules,
+    ),
   }));
   const expectedRowCount = csv.split(/\r?\n/).filter(Boolean).length - 1;
   const duplicateIds = duplicatedValues(
@@ -246,7 +258,7 @@ function summarizeFile(
       transactions,
       (transaction) => transaction.classification.confidence,
     ),
-    importPreview: previewPrivateImport(csv, index),
+    importPreview: previewPrivateImport(csv, index, localClassificationRules),
     monthly: summarizeMonthly(transactions),
     transactions,
   };
@@ -255,6 +267,7 @@ function summarizeFile(
 function previewPrivateImport(
   csv: string,
   index: number,
+  localClassificationRules: readonly LocalClassificationRule[],
 ): PrivateImportPreviewSummary {
   const connection = createDatabaseConnection(":memory:");
 
@@ -262,6 +275,7 @@ function previewPrivateImport(
     runMigrations(connection.db);
     const preview = createImportsService(
       createImportsRepository(connection.db),
+      { localClassificationRules },
     ).previewCsvImport({
       csv,
       originalFileName: `storage_csv_${index + 1}.csv`,

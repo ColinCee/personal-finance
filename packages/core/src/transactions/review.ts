@@ -21,6 +21,7 @@ export type ReviewDecision = {
 export type ReviewTransaction = LedgerEntry & {
   reviewItemId: string | null;
   reviewStatus: ReviewStatus;
+  reviewReason: string | null;
   affectsPersonalSpend: boolean;
 };
 
@@ -30,6 +31,7 @@ export function toReviewTransaction(entry: LedgerEntry): ReviewTransaction {
     affectsPersonalSpend: affectsPersonalSpend(entry),
     reviewItemId: null,
     reviewStatus: entry.kind === "spend" ? "confirmed" : "needs_review",
+    reviewReason: null,
   };
 }
 

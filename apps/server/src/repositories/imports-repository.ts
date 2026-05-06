@@ -1,10 +1,10 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
-import {
-  classifyTransaction,
-  type FileImportSource,
-  type ImportSource,
-  type NormalizedTransactionInput,
+import type {
+  FileImportSource,
+  ImportSource,
+  NormalizedTransactionInput,
+  TransactionClassification,
 } from "@personal-finance/core";
 
 import type { AppDatabase } from "../db/client";
@@ -13,6 +13,7 @@ import {
   importedFiles,
   ledgerEntries,
   rawTransactions,
+  reviewDecisions,
   reviewItems,
 } from "../db/schema";
 
@@ -21,7 +22,11 @@ export type ImportRecord = {
   fileSha256: string;
   originalFileName: string;
   source: FileImportSource;
-  transactions: readonly NormalizedTransactionInput[];
+  transactions: readonly ClassifiedImportTransaction[];
+};
+
+type ClassifiedImportTransaction = NormalizedTransactionInput & {
+  classification: TransactionClassification;
 };
 
 export type ImportResult = {
@@ -119,10 +124,11 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
         let reviewItemCount = 0;
 
         record.transactions.forEach((entry, index) => {
-          const classification = classifyTransaction(entry);
+          const classification = entry.classification;
           const rowHash = `${record.fileSha256}:${index}`;
           const rawTransactionId = `raw_${record.importId}_${index}`;
           const ledgerEntryId = `ledger_${record.importId}_${index}`;
+          const reviewItemId = `review_${record.importId}_${index}`;
 
           transaction
             .insert(rawTransactions)
@@ -159,15 +165,36 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
 
           if (classification.reviewRequired) {
             reviewItemCount += 1;
+          }
+
+          if (classification.reviewRequired || classification.matchedRule) {
             transaction
               .insert(reviewItems)
               .values({
-                id: `review_${record.importId}_${index}`,
+                id: reviewItemId,
                 ledgerEntryId,
-                status: "needs_review",
-                reason: classification.reason,
+                status: classification.reviewRequired
+                  ? "needs_review"
+                  : "confirmed",
+                reason: reviewReasonForClassification(classification),
+                resolvedAt: classification.reviewRequired
+                  ? undefined
+                  : sql`CURRENT_TIMESTAMP`,
               })
               .run();
+
+            if (classification.matchedRule && !classification.reviewRequired) {
+              transaction
+                .insert(reviewDecisions)
+                .values({
+                  id: `review_decision_${record.importId}_${index}`,
+                  reviewItemId,
+                  action: "confirm_kind",
+                  decidedKind: classification.kind,
+                  note: `Auto-identified by private local rule: ${classification.matchedRule.label}.`,
+                })
+                .run();
+            }
           }
         });
 
@@ -195,6 +222,14 @@ export function createImportsRepository(db: AppDatabase): ImportsRepository {
         .orderBy(desc(importedFiles.importedAt))
         .all(),
   };
+}
+
+function reviewReasonForClassification(
+  classification: TransactionClassification,
+) {
+  return classification.matchedRule
+    ? `private_rule:${classification.matchedRule.id}`
+    : classification.reason;
 }
 
 function accountIdForSource(source: ImportSource) {

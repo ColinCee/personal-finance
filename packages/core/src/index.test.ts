@@ -6,9 +6,12 @@ import { describe, expect, test } from "vitest";
 import {
   affectsPersonalSpend,
   calculateAllocationSummary,
+  calculateEconomicEffectTotals,
   calculateMonthlyReports,
   calculateNetPersonalSpendMinorUnits,
   classifyTransaction,
+  classifyTransactionWithLocalRules,
+  deriveEconomicEffects,
   detectFileImportSource,
   type EntryKind,
   type EconomicAllocation,
@@ -140,7 +143,7 @@ describe("classification rules", () => {
     });
   });
 
-  test("classifies internal savings transfers without counting them as spend", () => {
+  test("keeps savings and investment movement in review", () => {
     expect(
       classifyTransaction({
         amountMinorUnits: -50000,
@@ -150,7 +153,24 @@ describe("classification rules", () => {
       }),
     ).toMatchObject({
       kind: "transfer",
+      confidence: "medium",
+      reason: "saving_or_investment_movement",
+      reviewRequired: true,
+    });
+  });
+
+  test("classifies explicit own-account transfers without review", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: -50000,
+        description: "Internal transfer between accounts",
+        kind: "spend",
+        source: "monzo",
+      }),
+    ).toMatchObject({
+      kind: "transfer",
       confidence: "high",
+      reason: "internal_transfer",
       reviewRequired: false,
     });
   });
@@ -183,6 +203,22 @@ describe("classification rules", () => {
       kind: "income",
       confidence: "low",
       reason: "positive_amount_uncertain",
+      reviewRequired: true,
+    });
+  });
+
+  test("treats shared subscription repayments as repayment-like, not income", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: 2199,
+        description: "Shared subscription repayment",
+        kind: "income",
+        source: "monzo",
+      }),
+    ).toEqual({
+      kind: "reimbursement",
+      confidence: "medium",
+      reason: "shared_repayment",
       reviewRequired: true,
     });
   });
@@ -232,6 +268,39 @@ describe("classification rules", () => {
       confidence: "high",
       reason: "internal_transfer",
       reviewRequired: false,
+    });
+  });
+
+  test("applies local private classification rules before public defaults", () => {
+    expect(
+      classifyTransactionWithLocalRules(
+        {
+          amountMinorUnits: 2199,
+          description: "Household subscription repayment",
+          kind: "income",
+          source: "monzo",
+        },
+        [
+          {
+            id: "household-repayments",
+            label: "Household repayments",
+            match: {
+              amountDirection: "money_in",
+              descriptionContains: ["household subscription"],
+            },
+            classifyAs: "reimbursement",
+          },
+        ],
+      ),
+    ).toEqual({
+      kind: "reimbursement",
+      confidence: "high",
+      reason: "private_rule",
+      reviewRequired: false,
+      matchedRule: {
+        id: "household-repayments",
+        label: "Household repayments",
+      },
     });
   });
 });
@@ -331,6 +400,68 @@ describe("allocation and settlement accounting", () => {
   });
 });
 
+describe("economic effects", () => {
+  test("derives budget effects from allocations, settlements, income, transfers, and unresolved rows", () => {
+    const entries = [
+      ledgerEntry("salary", 300000, "income", "monzo"),
+      ledgerEntry("pot_transfer", -50000, "transfer", "monzo"),
+      ledgerEntry("amex_friend_dinner", -10000, "spend", "amex"),
+      ledgerEntry("friend_repayment", 6000, "reimbursement", "monzo"),
+      ledgerEntry("amex_payment", -10000, "credit_card_payment", "monzo"),
+      ledgerEntry("ambiguous_credit", 2500, "income", "monzo"),
+    ] as const;
+    const allocations: EconomicAllocation[] = [
+      allocation("dinner_personal", "amex_friend_dinner", "personal", 4000),
+      allocation(
+        "dinner_friend",
+        "amex_friend_dinner",
+        "friend",
+        6000,
+        "friend",
+      ),
+    ];
+    const settlements: SettlementLink[] = [
+      {
+        id: "friend_repayment_settlement",
+        settlementLedgerEntryId: "friend_repayment",
+        allocationId: "dinner_friend",
+        type: "reimbursement",
+        amountMinorUnits: 6000,
+      },
+      {
+        id: "amex_payment_settlement",
+        settlementLedgerEntryId: "amex_payment",
+        allocationId: null,
+        type: "card_payment",
+        amountMinorUnits: 10000,
+      },
+    ];
+
+    const totals = calculateEconomicEffectTotals(
+      deriveEconomicEffects({
+        entries,
+        allocations,
+        settlements,
+        reviewItems: [
+          {
+            ledgerEntryId: "ambiguous_credit",
+            status: "needs_review",
+          },
+        ],
+      }),
+    );
+
+    expect(totals.personal_spend).toBe(4000);
+    expect(totals.shared_spend).toBe(6000);
+    expect(totals.receivable_created).toBe(6000);
+    expect(totals.receivable_settled).toBe(6000);
+    expect(totals.credit_card_payment).toBe(10000);
+    expect(totals.income).toBe(300000);
+    expect(totals.transfer).toBe(50000);
+    expect(totals.uncertain).toBe(2500);
+  });
+});
+
 describe("monthly reports", () => {
   test("calculates monthly activity and month-end balances", () => {
     const entries = [
@@ -424,9 +555,14 @@ describe("monthly reports", () => {
         cashflowNetMinorUnits: 282000,
         moneyInMinorUnits: 300000,
         moneyOutMinorUnits: 18000,
+        actualPersonalSpendMinorUnits: 14000,
         personalSpendMinorUnits: 14000,
         businessOrReimbursableMinorUnits: 0,
         sharedSpendMinorUnits: 4000,
+        sharedAwaitingRepaymentMinorUnits: 4000,
+        incomeNewMoneyMinorUnits: 300000,
+        refundOrRepaymentMinorUnits: 0,
+        unresolvedImpactMinorUnits: 8000,
         monthEndCreditCardLiabilityMinorUnits: 18000,
         transactionCount: 3,
         reviewItemCount: 1,
@@ -437,9 +573,15 @@ describe("monthly reports", () => {
         cashflowNetMinorUnits: -14000,
         moneyInMinorUnits: 4000,
         moneyOutMinorUnits: 18000,
+        actualPersonalSpendMinorUnits: 0,
         personalSpendMinorUnits: 0,
         businessOrReimbursableMinorUnits: 0,
         sharedSpendMinorUnits: 0,
+        sharedAwaitingRepaymentMinorUnits: 0,
+        incomeNewMoneyMinorUnits: 0,
+        refundOrRepaymentMinorUnits: 4000,
+        creditCardPaymentMinorUnits: 18000,
+        unresolvedImpactMinorUnits: 0,
         monthEndCreditCardLiabilityMinorUnits: 0,
         transactionCount: 2,
         reviewItemCount: 1,
@@ -450,6 +592,8 @@ describe("monthly reports", () => {
     expect(reports[1]?.monthEndOutstandingByPurpose.friend).toBe(0);
     expect(reports[0]?.allocationByPurpose.personal).toBe(14000);
     expect(reports[0]?.allocationByPurpose.friend).toBe(4000);
+    expect(reports[0]?.economicEffectTotals.personal_spend).toBe(14000);
+    expect(reports[1]?.economicEffectTotals.receivable_settled).toBe(4000);
   });
 
   test("separates business and excluded allocations from personal spend", () => {
@@ -496,15 +640,19 @@ describe("monthly reports", () => {
     expect(reports).toMatchObject([
       {
         month: "2026-04",
+        actualPersonalSpendMinorUnits: 10000,
         personalSpendMinorUnits: 10000,
         businessOrReimbursableMinorUnits: 30000,
+        notPersonalBudgetMinorUnits: 35000,
         sharedSpendMinorUnits: 0,
         monthEndCreditCardLiabilityMinorUnits: 45000,
       },
       {
         month: "2026-05",
+        actualPersonalSpendMinorUnits: 0,
         personalSpendMinorUnits: 0,
         businessOrReimbursableMinorUnits: 0,
+        refundOrRepaymentMinorUnits: 30000,
         sharedSpendMinorUnits: 0,
         monthEndCreditCardLiabilityMinorUnits: 45000,
       },

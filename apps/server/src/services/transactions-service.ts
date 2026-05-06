@@ -3,14 +3,19 @@ import { randomUUID } from "node:crypto";
 import type { EntryKind } from "@personal-finance/core";
 import type {
   AllocationPurpose,
+  LocalClassificationRule,
   ReviewTransaction,
   SettlementType,
 } from "@personal-finance/core";
 
-import type { TransactionsRepository } from "../repositories/transactions-repository";
+import type {
+  ApplyLocalClassificationRulesResult,
+  TransactionsRepository,
+} from "../repositories/transactions-repository";
 
 export type TransactionsService = {
   listReviewTransactions: () => ReviewTransaction[];
+  applyLocalClassificationRules: () => ApplyLocalClassificationRulesResult;
   recordReviewDecision: (
     decision: ReviewDecisionRequest,
   ) => ReviewDecisionResponse;
@@ -60,10 +65,17 @@ export type AllocationDecisionResponse = {
 
 export function createTransactionsService(
   transactionsRepository: TransactionsRepository,
+  options: {
+    localClassificationRulesProvider?: () => readonly LocalClassificationRule[];
+  } = {},
 ): TransactionsService {
   return {
     listReviewTransactions: () =>
       transactionsRepository.listReviewTransactions(),
+    applyLocalClassificationRules: () =>
+      transactionsRepository.applyLocalClassificationRules(
+        options.localClassificationRulesProvider?.() ?? [],
+      ),
     recordReviewDecision: (decision) =>
       transactionsRepository.appendReviewDecision({
         id: `review_decision_${randomUUID()}`,

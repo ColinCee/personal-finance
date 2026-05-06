@@ -1,4 +1,5 @@
 import type { NormalizedTransactionInput } from "../imports/normalize";
+import type { ImportSource } from "../imports/source";
 import type { EntryKind } from "../transactions/kinds";
 
 export const classificationConfidences = ["high", "medium", "low"] as const;
@@ -11,22 +12,45 @@ export type ClassificationReason =
   | "salary_income"
   | "credit_card_payment"
   | "internal_transfer"
+  | "saving_or_investment_movement"
+  | "shared_repayment"
   | "reimbursement"
   | "split_settlement"
   | "source_supplied_kind"
-  | "positive_amount_uncertain";
+  | "positive_amount_uncertain"
+  | "private_rule";
 
 export type TransactionClassification = {
   kind: EntryKind;
   confidence: ClassificationConfidence;
   reason: ClassificationReason;
   reviewRequired: boolean;
+  matchedRule?: MatchedClassificationRule;
 };
 
 type ClassifiableTransaction = Pick<
   NormalizedTransactionInput,
   "amountMinorUnits" | "description" | "kind" | "source"
 >;
+
+export type LocalClassificationRule = {
+  id: string;
+  label: string;
+  enabled?: boolean;
+  match: {
+    descriptionContains: readonly string[];
+    amountDirection?: "any" | "money_in" | "money_out";
+    sources?: readonly ImportSource[];
+  };
+  classifyAs: EntryKind;
+  confidence?: ClassificationConfidence;
+  reviewRequired?: boolean;
+};
+
+export type MatchedClassificationRule = {
+  id: string;
+  label: string;
+};
 
 const monzoSources = new Set(["fake-monzo", "monzo"]);
 
@@ -43,8 +67,16 @@ export function classifyTransaction(
     return highConfidence("credit_card_payment", "credit_card_payment");
   }
 
+  if (isSavingOrInvestmentMovement(description)) {
+    return mediumConfidence("transfer", "saving_or_investment_movement");
+  }
+
   if (isInternalTransfer(description)) {
     return highConfidence("transfer", "internal_transfer");
+  }
+
+  if (transaction.amountMinorUnits > 0 && isSharedRepayment(description)) {
+    return mediumConfidence("reimbursement", "shared_repayment");
   }
 
   if (isSplitSettlement(description)) {
@@ -70,6 +102,30 @@ export function classifyTransaction(
   }
 
   return highConfidence("spend", "ordinary_spend");
+}
+
+export function classifyTransactionWithLocalRules(
+  transaction: ClassifiableTransaction,
+  rules: readonly LocalClassificationRule[],
+): TransactionClassification {
+  const matchedRule = rules.find((rule) =>
+    localRuleMatchesTransaction(rule, transaction),
+  );
+
+  if (!matchedRule) {
+    return classifyTransaction(transaction);
+  }
+
+  return {
+    kind: matchedRule.classifyAs,
+    confidence: matchedRule.confidence ?? "high",
+    reason: "private_rule",
+    reviewRequired: matchedRule.reviewRequired ?? false,
+    matchedRule: {
+      id: matchedRule.id,
+      label: matchedRule.label,
+    },
+  };
 }
 
 function defaultKindForAmount(amountMinorUnits: number): EntryKind {
@@ -124,6 +180,43 @@ function normalizeDescription(description: string): string {
   return description.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function localRuleMatchesTransaction(
+  rule: LocalClassificationRule,
+  transaction: ClassifiableTransaction,
+): boolean {
+  if (rule.enabled === false) {
+    return false;
+  }
+
+  if (!amountDirectionMatches(rule.match.amountDirection, transaction)) {
+    return false;
+  }
+
+  if (rule.match.sources && !rule.match.sources.includes(transaction.source)) {
+    return false;
+  }
+
+  const description = normalizeDescription(transaction.description);
+
+  return rule.match.descriptionContains.some((term) =>
+    description.includes(normalizeDescription(term)),
+  );
+}
+
+function amountDirectionMatches(
+  direction: LocalClassificationRule["match"]["amountDirection"],
+  transaction: ClassifiableTransaction,
+): boolean {
+  switch (direction ?? "any") {
+    case "any":
+      return true;
+    case "money_in":
+      return transaction.amountMinorUnits > 0;
+    case "money_out":
+      return transaction.amountMinorUnits < 0;
+  }
+}
+
 function isSalary(description: string): boolean {
   return /\b(salary|payroll|wages|pay)\b/.test(description);
 }
@@ -140,13 +233,25 @@ function isCreditCardPayment(
 }
 
 function isInternalTransfer(description: string): boolean {
-  return /\b(internal transfer|transfer to savings|transfer from savings|pot transfer)\b/.test(
+  return /\b(internal transfer|own account|between accounts)\b/.test(
+    description,
+  );
+}
+
+function isSavingOrInvestmentMovement(description: string): boolean {
+  return /\b(pot|savings?|isa|investment|invest|vanguard|trading 212|pension)\b/.test(
     description,
   );
 }
 
 function isReimbursement(description: string): boolean {
   return /\b(refund|reimbursement|repayment|paid me back|settled up)\b/.test(
+    description,
+  );
+}
+
+function isSharedRepayment(description: string): boolean {
+  return /\b(shared subscription|family subscription|splitwise|bill split|shared|joint|household|housemate|flatmate|utilities?|council tax|rent)\b/.test(
     description,
   );
 }

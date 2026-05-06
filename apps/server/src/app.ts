@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { LocalClassificationRule } from "@personal-finance/core";
 
 import type { AppDatabase } from "./db/client";
 import { createImportsRepository } from "./repositories/imports-repository";
@@ -12,14 +13,30 @@ import { createImportsService } from "./services/imports-service";
 import { createReportsService } from "./services/reports-service";
 import { createTransactionsService } from "./services/transactions-service";
 
-export function createApp(db: AppDatabase) {
+export type AppOptions = {
+  localClassificationRules?: readonly LocalClassificationRule[];
+  localClassificationRulesProvider?: () => readonly LocalClassificationRule[];
+};
+
+export function createApp(db: AppDatabase, options: AppOptions = {}) {
   const app = new Hono();
   const reportsRepository = createReportsRepository(db);
   const reportsService = createReportsService(reportsRepository);
   const transactionsRepository = createTransactionsRepository(db);
-  const transactionsService = createTransactionsService(transactionsRepository);
+  const getLocalClassificationRules = () =>
+    options.localClassificationRulesProvider?.() ??
+    options.localClassificationRules ??
+    [];
+  const transactionsService = createTransactionsService(
+    transactionsRepository,
+    {
+      localClassificationRulesProvider: getLocalClassificationRules,
+    },
+  );
   const importsRepository = createImportsRepository(db);
-  const importsService = createImportsService(importsRepository);
+  const importsService = createImportsService(importsRepository, {
+    localClassificationRulesProvider: getLocalClassificationRules,
+  });
 
   app.route("/api", createHealthRoutes());
   app.route("/api", createImportsRoutes(importsService));

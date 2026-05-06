@@ -23,6 +23,7 @@ import type {
 } from "@personal-finance/core";
 import { Button } from "@/components/ui/button";
 import {
+  applyLocalClassificationRules,
   commitCsvImport,
   fetchMonthlyReports,
   fetchImportHistory,
@@ -174,20 +175,27 @@ function Dashboard() {
           hint="Only uncertain rows need action"
         />
         <SummaryCard
-          label="Latest personal spend"
+          label="Actual personal spend"
           value={formatCurrencyFromMinorUnits(
-            latestReport?.personalSpendMinorUnits ?? 0,
+            latestReport?.actualPersonalSpendMinorUnits ?? 0,
           )}
           hint={
             latestReport ? formatMonth(latestReport.month) : "No reports yet"
           }
         />
         <SummaryCard
-          label="Card liability"
+          label="Unresolved impact"
           value={formatCurrencyFromMinorUnits(
-            latestReport?.monthEndCreditCardLiabilityMinorUnits ?? 0,
+            latestReport?.unresolvedImpactMinorUnits ?? 0,
           )}
-          hint="Month-end Amex balance model"
+          hint="Excluded from confidence until reviewed"
+        />
+        <SummaryCard
+          label="Shared awaiting repayment"
+          value={formatCurrencyFromMinorUnits(
+            latestReport?.sharedAwaitingRepaymentMinorUnits ?? 0,
+          )}
+          hint="Friend, partner, and joint balances"
         />
       </section>
 
@@ -341,6 +349,8 @@ function ImportWorkspace() {
 
 function ReviewInbox() {
   const transactions = useTransactions();
+  const [activeReviewTab, setActiveReviewTab] =
+    useState<ReviewInboxTab>("needs_action");
   const queryClient = useQueryClient();
   const reviewDecision = useMutation({
     mutationFn: submitReviewDecision,
@@ -352,11 +362,22 @@ function ReviewInbox() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["transactions"] }),
   });
+  const localRulesApply = useMutation({
+    mutationFn: applyLocalClassificationRules,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["monthly-reports"] });
+      setActiveReviewTab("auto_identified");
+    },
+  });
   const allRows = transactions.data ?? [];
   const rows = allRows.filter(
     (transaction) =>
       transaction.reviewStatus === "needs_review" && transaction.reviewItemId,
   );
+  const autoIdentifiedRows = allRows.filter(isPrivateRuleTransaction);
+  const displayedRows =
+    activeReviewTab === "needs_action" ? rows : autoIdentifiedRows;
   const pendingReviewItemId =
     reviewDecision.isPending || allocationDecision.isPending
       ? (reviewDecision.variables?.reviewItemId ??
@@ -371,12 +392,46 @@ function ReviewInbox() {
     return <p className="panel error">{transactions.error.message}</p>;
   }
 
+  function decideKind(transaction: Transaction, decidedKind: EntryKind) {
+    if (!transaction.reviewItemId) {
+      throw new Error(`Transaction has no review item: ${transaction.id}`);
+    }
+
+    reviewDecision.mutate({
+      reviewItemId: transaction.reviewItemId,
+      decidedKind,
+      note:
+        decidedKind === transaction.kind
+          ? undefined
+          : `Changed from ${formatEntryKind(transaction.kind)} in the review inbox.`,
+    });
+  }
+
+  function decideAllocation(
+    transaction: Transaction,
+    allocationChoice: AllocationChoice,
+  ) {
+    if (!transaction.reviewItemId) {
+      throw new Error(`Transaction has no review item: ${transaction.id}`);
+    }
+
+    allocationDecision.mutate({
+      reviewItemId: transaction.reviewItemId,
+      note: allocationChoice.note,
+      allocations: allocationChoice.allocations,
+      settlements: allocationChoice.settlements,
+    });
+  }
+
   return (
     <div className="review-stack">
       <PageHeader
         aside={
           <div className="page-actions">
             <span className="status-pill">{rows.length} need action</span>
+            <span className="status-pill muted">
+              {autoIdentifiedRows.length} auto-identified
+            </span>
             <span className="status-pill muted">
               {allRows.length} ledger rows
             </span>
@@ -387,16 +442,48 @@ function ReviewInbox() {
         title="Review inbox"
       />
 
-      <section className="panel">
-        <div className="panel-header">
+      <section className="panel review-panel">
+        <div className="panel-header review-panel-header">
           <div>
-            <p className="eyebrow">Decision queue</p>
-            <h2>Flagged transactions</h2>
+            <p className="eyebrow">Review queue</p>
+            <h2>
+              {activeReviewTab === "needs_action"
+                ? "Flagged transactions"
+                : "Auto-identified transactions"}
+            </h2>
             <p>
-              The app flags repayments, transfers, reimbursements, and shared
-              settlements before they flow into reports.
+              {activeReviewTab === "needs_action"
+                ? "Review only the rows that can change your real monthly spend. Choose the budget effect, not a bookkeeping category."
+                : "Private local rules can auto-file rows for you, but they stay visible here so the behaviour is inspectable."}
             </p>
           </div>
+          <div className="review-queue-summary">
+            <strong>{displayedRows.length}</strong>
+            <span>{activeReviewTab === "needs_action" ? "open" : "auto"}</span>
+          </div>
+        </div>
+
+        <div className="review-tabs" role="tablist" aria-label="Review inbox">
+          <button
+            aria-selected={activeReviewTab === "needs_action"}
+            className="review-tab"
+            onClick={() => setActiveReviewTab("needs_action")}
+            role="tab"
+            type="button"
+          >
+            Needs action
+            <span>{rows.length}</span>
+          </button>
+          <button
+            aria-selected={activeReviewTab === "auto_identified"}
+            className="review-tab"
+            onClick={() => setActiveReviewTab("auto_identified")}
+            role="tab"
+            type="button"
+          >
+            Auto-identified
+            <span>{autoIdentifiedRows.length}</span>
+          </button>
         </div>
 
         {reviewDecision.isError || allocationDecision.isError ? (
@@ -405,88 +492,85 @@ function ReviewInbox() {
           </p>
         ) : null}
 
-        {rows.length === 0 ? (
+        {localRulesApply.isError ? (
+          <p className="decision-error" role="alert">
+            {localRulesApply.error.message}
+          </p>
+        ) : null}
+
+        <div className="local-rules-bar">
+          <div>
+            <strong>Edited private rules?</strong>
+            <span>
+              Reload the ignored JSON file and apply matching rules to existing
+              unresolved rows.
+            </span>
+          </div>
+          <Button
+            disabled={localRulesApply.isPending}
+            onClick={() => localRulesApply.mutate()}
+            type="button"
+            variant="secondary"
+          >
+            {localRulesApply.isPending ? "Reloading..." : "Reload rules"}
+          </Button>
+        </div>
+
+        {localRulesApply.isSuccess ? (
+          <p className="rules-apply-summary" role="status">
+            Applied {localRulesApply.data.ruleCount} private rules.{" "}
+            {localRulesApply.data.matchedTransactionCount} rows matched;{" "}
+            {localRulesApply.data.resolvedReviewItemCount} moved from Needs
+            action and {localRulesApply.data.createdReviewItemCount} marked as
+            auto-identified.
+          </p>
+        ) : null}
+
+        {displayedRows.length === 0 ? (
           <div className="empty-state">
-            <strong>Nothing needs review.</strong>
-            <span>Confirmed and auto-filed rows stay out of this queue.</span>
+            <strong>
+              {activeReviewTab === "needs_action"
+                ? "Nothing needs review."
+                : "No private rules have auto-identified rows yet."}
+            </strong>
+            <span>
+              {activeReviewTab === "needs_action"
+                ? "Confirmed and auto-filed rows stay out of this queue."
+                : "Add local rules under storage to auto-file private payees without committing them."}
+            </span>
+          </div>
+        ) : activeReviewTab === "needs_action" ? (
+          <div className="review-card-list">
+            {displayedRows.map((transaction) => (
+              <ReviewDecisionCard
+                key={transaction.id}
+                pending={pendingReviewItemId === transaction.reviewItemId}
+                transaction={transaction}
+                onAllocationDecision={(allocationChoice) =>
+                  decideAllocation(transaction, allocationChoice)
+                }
+                onDecision={(decidedKind) =>
+                  decideKind(transaction, decidedKind)
+                }
+              />
+            ))}
           </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Transaction</th>
-                <th>Amount</th>
-                <th>Impact</th>
-                <th>Decision</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((transaction) => (
-                <tr key={transaction.id}>
-                  <td>
-                    <time dateTime={transaction.postedOn}>
-                      {transaction.postedOn}
-                    </time>
-                  </td>
-                  <td>
-                    <div className="transaction-copy">
-                      <strong>{transaction.description}</strong>
-                      <span>
-                        Detected as {formatEntryKind(transaction.kind)} ·{" "}
-                        {transaction.source}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="amount-cell">
-                    {formatCurrencyFromMinorUnits(transaction.amountMinorUnits)}
-                  </td>
-                  <td>{impactLabel(transaction)}</td>
-                  <td>
-                    <ReviewActions
-                      pending={pendingReviewItemId === transaction.reviewItemId}
-                      transaction={transaction}
-                      onDecision={(decidedKind) => {
-                        if (!transaction.reviewItemId) {
-                          throw new Error(
-                            `Transaction has no review item: ${transaction.id}`,
-                          );
-                        }
-
-                        reviewDecision.mutate({
-                          reviewItemId: transaction.reviewItemId,
-                          decidedKind,
-                          note:
-                            decidedKind === transaction.kind
-                              ? undefined
-                              : `Changed from ${formatEntryKind(transaction.kind)} in the review inbox.`,
-                        });
-                      }}
-                      onAllocationDecision={(allocationChoice) => {
-                        if (!transaction.reviewItemId) {
-                          throw new Error(
-                            `Transaction has no review item: ${transaction.id}`,
-                          );
-                        }
-
-                        allocationDecision.mutate({
-                          reviewItemId: transaction.reviewItemId,
-                          note: allocationChoice.note,
-                          allocations: allocationChoice.allocations,
-                          settlements: allocationChoice.settlements,
-                        });
-                      }}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="review-card-list">
+            {displayedRows.map((transaction) => (
+              <AutoIdentifiedCard
+                key={transaction.id}
+                transaction={transaction}
+              />
+            ))}
+          </div>
         )}
       </section>
     </div>
   );
 }
+
+type ReviewInboxTab = "needs_action" | "auto_identified";
 
 function PageHeader(props: {
   aside?: ReactNode;
@@ -663,7 +747,7 @@ function ImportHistoryPanel(props: {
   );
 }
 
-function ReviewActions(props: {
+function ReviewDecisionCard(props: {
   pending: boolean;
   transaction: Transaction;
   onDecision: (decidedKind: EntryKind) => void;
@@ -673,44 +757,155 @@ function ReviewActions(props: {
     props.transaction.reviewStatus === "confirmed" ||
     !props.transaction.reviewItemId
   ) {
-    return <span className="resolved-label">Resolved</span>;
+    return null;
   }
 
+  const choices = reviewChoicesForTransaction(props.transaction);
+  const [recommendedChoice, ...alternativeChoices] = choices;
+  const isMoneyIn = props.transaction.amountMinorUnits >= 0;
+
   return (
-    <div className="decision-actions">
-      <Button
-        disabled={props.pending}
-        onClick={() => props.onDecision(props.transaction.kind)}
-        size="sm"
-      >
-        {props.pending
-          ? "Saving..."
-          : `Confirm ${formatEntryKind(props.transaction.kind)}`}
-      </Button>
-      {kindCorrectionOptionsForTransaction(props.transaction).map((option) => (
-        <Button
-          disabled={props.pending}
-          key={option.kind}
-          onClick={() => props.onDecision(option.kind)}
-          size="sm"
-          variant="outline"
+    <article className="review-card">
+      <div className="review-transaction-copy">
+        <div className="review-meta">
+          <time dateTime={props.transaction.postedOn}>
+            {props.transaction.postedOn}
+          </time>
+          <span>{props.transaction.source}</span>
+          <span>Detected {formatEntryKind(props.transaction.kind)}</span>
+        </div>
+        <h3>{props.transaction.description}</h3>
+      </div>
+
+      <div className="review-amount-badge">
+        <span>{isMoneyIn ? "Money in" : "Money out"}</span>
+        <strong
+          className={isMoneyIn ? "review-amount positive" : "review-amount"}
         >
-          {option.label}
-        </Button>
-      ))}
-      {allocationChoicesForTransaction(props.transaction).map((choice) => (
-        <Button
+          {formatCurrencyFromMinorUnits(props.transaction.amountMinorUnits)}
+        </strong>
+      </div>
+
+      {recommendedChoice ? (
+        <button
+          aria-label={recommendedChoice.label}
+          className="review-choice recommended"
           disabled={props.pending}
-          key={choice.label}
-          onClick={() => props.onAllocationDecision(choice)}
-          size="sm"
-          variant="secondary"
+          onClick={() =>
+            executeReviewChoice(recommendedChoice, {
+              onAllocationDecision: props.onAllocationDecision,
+              onDecision: props.onDecision,
+            })
+          }
+          type="button"
         >
-          {choice.label}
-        </Button>
-      ))}
-    </div>
+          <span className="choice-kicker">Recommended</span>
+          <strong>
+            {props.pending ? "Saving..." : recommendedChoice.label}
+          </strong>
+          <small>{recommendedChoice.description}</small>
+        </button>
+      ) : null}
+
+      {alternativeChoices.length > 0 ? (
+        <details className="review-alternatives">
+          <summary>
+            Other choices
+            <span>{alternativeChoices.length}</span>
+          </summary>
+          <div className="review-choice-grid">
+            {alternativeChoices.map((choice) => (
+              <button
+                aria-label={choice.label}
+                className="review-choice"
+                disabled={props.pending}
+                key={choice.id}
+                onClick={() =>
+                  executeReviewChoice(choice, {
+                    onAllocationDecision: props.onAllocationDecision,
+                    onDecision: props.onDecision,
+                  })
+                }
+                type="button"
+              >
+                <strong>{choice.label}</strong>
+                <small>{choice.description}</small>
+              </button>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </article>
   );
+}
+
+function AutoIdentifiedCard(props: { transaction: Transaction }) {
+  const isMoneyIn = props.transaction.amountMinorUnits >= 0;
+
+  return (
+    <article className="review-card auto-identified-card">
+      <div className="review-transaction-copy">
+        <div className="review-meta">
+          <time dateTime={props.transaction.postedOn}>
+            {props.transaction.postedOn}
+          </time>
+          <span>{props.transaction.source}</span>
+          <span>{formatPrivateRuleReason(props.transaction.reviewReason)}</span>
+        </div>
+        <h3>{props.transaction.description}</h3>
+      </div>
+
+      <div className="review-amount-badge">
+        <span>{isMoneyIn ? "Money in" : "Money out"}</span>
+        <strong
+          className={isMoneyIn ? "review-amount positive" : "review-amount"}
+        >
+          {formatCurrencyFromMinorUnits(props.transaction.amountMinorUnits)}
+        </strong>
+      </div>
+
+      <div className="auto-decision-pill">
+        <span>Auto-filed</span>
+        <strong>{formatEntryKind(props.transaction.kind)}</strong>
+      </div>
+    </article>
+  );
+}
+
+type ReviewChoice =
+  | {
+      id: string;
+      label: string;
+      description: string;
+      type: "kind";
+      decidedKind: EntryKind;
+    }
+  | {
+      id: string;
+      label: string;
+      description: string;
+      type: "allocation";
+      allocationChoice: AllocationChoice;
+    };
+
+type ReviewChoiceHandlers = {
+  onDecision: (decidedKind: EntryKind) => void;
+  onAllocationDecision: (choice: AllocationChoice) => void;
+};
+
+function isPrivateRuleTransaction(transaction: Transaction): boolean {
+  return (
+    transaction.reviewStatus === "confirmed" &&
+    transaction.reviewReason?.startsWith("private_rule:") === true
+  );
+}
+
+function formatPrivateRuleReason(reason: string | null): string {
+  const ruleId = reason?.startsWith("private_rule:")
+    ? reason.slice("private_rule:".length)
+    : null;
+
+  return ruleId ? `Private rule ${ruleId}` : "Private rule";
 }
 
 type AllocationChoice = {
@@ -790,10 +985,11 @@ function MonthlyReportsPanel(props: {
           <thead>
             <tr>
               <th>Month</th>
-              <th>Personal</th>
-              <th>Shared</th>
-              <th>Business</th>
-              <th>Card liability</th>
+              <th>Actual spend</th>
+              <th>Awaiting repayment</th>
+              <th>Moved / saved</th>
+              <th>Income</th>
+              <th>Unresolved</th>
               <th>Review health</th>
             </tr>
           </thead>
@@ -802,19 +998,26 @@ function MonthlyReportsPanel(props: {
               <tr key={report.month}>
                 <td>{formatMonth(report.month)}</td>
                 <td className="amount-cell">
-                  {formatCurrencyFromMinorUnits(report.personalSpendMinorUnits)}
-                </td>
-                <td className="amount-cell">
-                  {formatCurrencyFromMinorUnits(report.sharedSpendMinorUnits)}
-                </td>
-                <td className="amount-cell">
                   {formatCurrencyFromMinorUnits(
-                    report.businessOrReimbursableMinorUnits,
+                    report.actualPersonalSpendMinorUnits,
                   )}
                 </td>
                 <td className="amount-cell">
                   {formatCurrencyFromMinorUnits(
-                    report.monthEndCreditCardLiabilityMinorUnits,
+                    report.sharedAwaitingRepaymentMinorUnits,
+                  )}
+                </td>
+                <td className="amount-cell">
+                  {formatCurrencyFromMinorUnits(report.movedOrSavedMinorUnits)}
+                </td>
+                <td className="amount-cell">
+                  {formatCurrencyFromMinorUnits(
+                    report.incomeNewMoneyMinorUnits,
+                  )}
+                </td>
+                <td className="amount-cell">
+                  {formatCurrencyFromMinorUnits(
+                    report.unresolvedImpactMinorUnits,
                   )}
                 </td>
                 <td>
@@ -933,11 +1136,11 @@ function formatFileImportSource(source: FileImportSource) {
 }
 
 const decisionKindOptions: { kind: EntryKind; label: string }[] = [
-  { kind: "spend", label: "spend" },
-  { kind: "transfer", label: "transfer" },
-  { kind: "credit_card_payment", label: "card payment" },
-  { kind: "reimbursement", label: "reimbursement" },
-  { kind: "split_settlement", label: "split" },
+  { kind: "income", label: "income / new money" },
+  { kind: "spend", label: "personal spend" },
+  { kind: "transfer", label: "transfer, saving, or investment" },
+  { kind: "credit_card_payment", label: "credit-card payment" },
+  { kind: "reimbursement", label: "refund or repayment" },
 ];
 
 const spendCorrectionKinds = new Set<EntryKind>([
@@ -949,39 +1152,33 @@ const spendCorrectionKinds = new Set<EntryKind>([
 function kindCorrectionOptionsForTransaction(
   transaction: Transaction,
 ): { kind: EntryKind; label: string }[] {
+  const allowedKinds =
+    transaction.amountMinorUnits > 0
+      ? new Set<EntryKind>(["income", "reimbursement", "transfer"])
+      : transaction.kind === "spend"
+        ? spendCorrectionKinds
+        : new Set<EntryKind>(["spend", "transfer", "credit_card_payment"]);
+
   return decisionKindOptions
     .filter((option) => option.kind !== transaction.kind)
-    .filter((option) =>
-      transaction.kind === "spend"
-        ? spendCorrectionKinds.has(option.kind)
-        : option.kind === "spend",
-    )
+    .filter((option) => allowedKinds.has(option.kind))
     .map((option) => ({
       kind: option.kind,
-      label:
-        transaction.kind === "spend"
-          ? `Actually ${option.label}`
-          : `Mark as ${option.label}`,
+      label: `Treat as ${option.label}`,
     }));
 }
 
 const entryKindLabels: Record<EntryKind, string> = {
-  income: "income",
-  spend: "spend",
-  transfer: "transfer",
+  income: "income / new money",
+  spend: "personal spend",
+  transfer: "transfer, saving, or investment",
   credit_card_payment: "credit-card payment",
-  reimbursement: "reimbursement",
-  split_settlement: "split settlement",
+  reimbursement: "refund or repayment",
+  split_settlement: "shared spend",
 };
 
 function formatEntryKind(kind: EntryKind): string {
   return entryKindLabels[kind];
-}
-
-function impactLabel(transaction: Transaction): string {
-  return transaction.affectsPersonalSpend
-    ? "Counts as spend"
-    : "Excluded from spend";
 }
 
 function allocationChoicesForTransaction(
@@ -1012,16 +1209,20 @@ function allocationChoicesForTransaction(
   const personalShareMinorUnits = amountMinorUnits - halfMinorUnits;
 
   return [
-    fullAllocationChoice("Personal spend", "personal", amountMinorUnits),
-    fullAllocationChoice("Business", "business", amountMinorUnits, "business"),
     fullAllocationChoice(
-      "Reimbursable",
-      "reimbursable",
+      "Counts as my personal spend",
+      "personal",
       amountMinorUnits,
-      "to be reimbursed",
+    ),
+    fullAllocationChoice("Not personal budget", "excluded", amountMinorUnits),
+    fullAllocationChoice(
+      "Old business / reimbursable",
+      "business",
+      amountMinorUnits,
+      "business",
     ),
     {
-      label: "Friend 50/50",
+      label: "Shared 50/50 - friend owes me",
       note: "Recorded from the review inbox as a shared expense with a friend.",
       allocations: [
         {
@@ -1036,7 +1237,7 @@ function allocationChoicesForTransaction(
       ],
     },
     {
-      label: "Partner 50/50",
+      label: "Shared 50/50 - partner owes me",
       note: "Recorded from the review inbox as a shared expense with a partner.",
       allocations: [
         {
@@ -1070,4 +1271,194 @@ function fullAllocationChoice(
       },
     ],
   };
+}
+
+function reviewChoicesForTransaction(transaction: Transaction): ReviewChoice[] {
+  const currentKindChoice = reviewChoiceForKind(
+    transaction.kind,
+    `Use ${formatEntryKind(transaction.kind)}`,
+  );
+  const kindChoices = kindCorrectionOptionsForTransaction(transaction).map(
+    (option) => reviewChoiceForKind(option.kind, option.label),
+  );
+  const allocationChoices = allocationChoicesForTransaction(transaction).map(
+    reviewChoiceForAllocation,
+  );
+
+  if (transaction.amountMinorUnits >= 0) {
+    const reimbursementChoice = kindChoices.find(
+      (choice) =>
+        choice.type === "kind" && choice.decidedKind === "reimbursement",
+    );
+    const transferChoice = kindChoices.find(
+      (choice) => choice.type === "kind" && choice.decidedKind === "transfer",
+    );
+
+    return compactReviewChoices([
+      transaction.kind === "reimbursement"
+        ? currentKindChoice
+        : reimbursementChoice,
+      currentKindChoice,
+      transferChoice,
+      ...kindChoices,
+    ]);
+  }
+
+  if (transaction.kind === "credit_card_payment") {
+    return compactReviewChoices([
+      allocationChoices.find((choice) => choice.id.includes("card-payment")),
+      currentKindChoice,
+      ...kindChoices,
+      ...allocationChoices.filter(
+        (choice) => !choice.id.includes("card-payment"),
+      ),
+    ]);
+  }
+
+  if (transaction.kind === "split_settlement") {
+    const sharedChoice = allocationChoices.find((choice) =>
+      choice.id.includes("shared-50-50"),
+    );
+
+    return compactReviewChoices([
+      sharedChoice,
+      ...allocationChoices.filter((choice) => choice !== sharedChoice),
+      currentKindChoice,
+      ...kindChoices,
+    ]);
+  }
+
+  if (transaction.kind === "spend") {
+    return compactReviewChoices([
+      allocationChoices[0],
+      ...allocationChoices.slice(1),
+      ...kindChoices,
+    ]);
+  }
+
+  return compactReviewChoices([
+    currentKindChoice,
+    ...kindChoices,
+    ...allocationChoices,
+  ]);
+}
+
+function compactReviewChoices(
+  choices: readonly (ReviewChoice | undefined)[],
+): ReviewChoice[] {
+  const seen = new Set<string>();
+  const compacted: ReviewChoice[] = [];
+
+  for (const choice of choices) {
+    if (!choice || seen.has(choice.id)) {
+      continue;
+    }
+
+    seen.add(choice.id);
+    compacted.push(choice);
+  }
+
+  return compacted;
+}
+
+function reviewChoiceForKind(kind: EntryKind, label: string): ReviewChoice {
+  return {
+    id: `kind-${kind}`,
+    label,
+    description: descriptionForKindChoice(kind),
+    type: "kind",
+    decidedKind: kind,
+  };
+}
+
+function reviewChoiceForAllocation(
+  allocationChoice: AllocationChoice,
+): ReviewChoice {
+  return {
+    id: `allocation-${slugify(allocationChoice.label)}`,
+    label: allocationChoice.label,
+    description: descriptionForAllocationChoice(allocationChoice),
+    type: "allocation",
+    allocationChoice,
+  };
+}
+
+function executeReviewChoice(
+  choice: ReviewChoice,
+  handlers: ReviewChoiceHandlers,
+) {
+  if (choice.type === "kind") {
+    handlers.onDecision(choice.decidedKind);
+    return;
+  }
+
+  handlers.onAllocationDecision(choice.allocationChoice);
+}
+
+function descriptionForKindChoice(kind: EntryKind): string {
+  switch (kind) {
+    case "credit_card_payment":
+      return "Keeps this out of spend and treats it as card balance movement.";
+    case "income":
+      return "Adds this as income / new money. It will not reduce spending.";
+    case "reimbursement":
+      return "Treats this as money coming back, not new income.";
+    case "spend":
+      return "Uses the detected spend type without adding a split.";
+    case "split_settlement":
+      return "Keeps it flagged as shared spend for later split detail.";
+    case "transfer":
+      return "Keeps it out of spend and income as moved, saved, or invested money.";
+  }
+}
+
+function descriptionForAllocationChoice(choice: AllocationChoice): string {
+  const amountMinorUnits = choice.allocations?.reduce(
+    (total, allocation) => total + allocation.amountMinorUnits,
+    0,
+  );
+  const personalShare = choice.allocations?.find(
+    (allocation) => allocation.purpose === "personal",
+  );
+  const owedShare = choice.allocations?.find(
+    (allocation) =>
+      allocation.purpose === "friend" || allocation.purpose === "partner",
+  );
+
+  if (
+    choice.settlements?.some((settlement) => settlement.type === "card_payment")
+  ) {
+    return "Clears card liability and keeps the payment out of actual spend.";
+  }
+
+  if (personalShare && owedShare) {
+    return `${formatCurrencyFromMinorUnits(personalShare.amountMinorUnits)} actual spend · ${formatCurrencyFromMinorUnits(owedShare.amountMinorUnits)} awaiting repayment.`;
+  }
+
+  if (
+    choice.allocations?.some((allocation) => allocation.purpose === "personal")
+  ) {
+    return `${formatCurrencyFromMinorUnits(amountMinorUnits ?? 0)} added to actual personal spend.`;
+  }
+
+  if (
+    choice.allocations?.some((allocation) => allocation.purpose === "excluded")
+  ) {
+    return `${formatCurrencyFromMinorUnits(amountMinorUnits ?? 0)} kept out of the personal budget.`;
+  }
+
+  if (
+    choice.allocations?.some((allocation) => allocation.purpose === "business")
+  ) {
+    return `${formatCurrencyFromMinorUnits(amountMinorUnits ?? 0)} tracked outside personal spend.`;
+  }
+
+  return "Records the economic effect without counting it all as personal spend.";
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }

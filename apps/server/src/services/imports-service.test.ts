@@ -199,6 +199,55 @@ describe("imports service", () => {
       testDatabase.cleanup();
     }
   });
+
+  test("auto-confirms transactions matched by private local rules", () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      const importsService = createImportsService(
+        createImportsRepository(testDatabase.db),
+        {
+          localClassificationRules: [
+            {
+              id: "household-repayments",
+              label: "Household repayments",
+              match: {
+                amountDirection: "money_in",
+                descriptionContains: ["household subscription"],
+              },
+              classifyAs: "reimbursement",
+            },
+          ],
+        },
+      );
+
+      const result = importsService.importFixtureCsv({
+        csv: [
+          "posted_on,description,amount,currency,kind,source",
+          "2026-05-02,Household subscription repayment,21.99,GBP,income,fake-monzo",
+        ].join("\n"),
+        originalFileName: "private-rule-transactions.csv",
+      });
+
+      expect(result).toMatchObject({
+        imported: true,
+        rawTransactionCount: 1,
+        ledgerEntryCount: 1,
+        reviewItemCount: 0,
+      });
+      expect(testDatabase.db.select().from(ledgerEntries).get()).toMatchObject({
+        kind: "reimbursement",
+      });
+      expect(testDatabase.db.select().from(reviewItems).all()).toMatchObject([
+        {
+          reason: "private_rule:household-repayments",
+          status: "confirmed",
+        },
+      ]);
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
 });
 
 function tableCount(

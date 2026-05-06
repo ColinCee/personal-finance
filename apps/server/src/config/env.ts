@@ -7,6 +7,7 @@ const repositoryRoot = resolve(serverRoot, "../..");
 export type ServerConfig = {
   databasePath: string;
   hostname: string;
+  localClassificationRulesPath: string;
   port: number;
 };
 
@@ -19,6 +20,10 @@ export function loadServerConfig(
         resolve(repositoryRoot, "storage/personal-finance.sqlite"),
     ),
     hostname: env.HOST ?? "127.0.0.1",
+    localClassificationRulesPath: resolve(
+      env.PERSONAL_FINANCE_CLASSIFICATION_RULES_PATH ??
+        resolve(repositoryRoot, "storage/classification-rules.json"),
+    ),
     port: Number.parseInt(env.PORT ?? "8787", 10),
   };
 }

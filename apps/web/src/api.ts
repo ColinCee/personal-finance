@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   allocationPurposes,
+  economicEffectTypes,
   entryKinds,
   fileImportSources,
   settlementTypes,
@@ -25,6 +26,7 @@ const transactionSchema = z.object({
   source: z.string(),
   reviewItemId: z.string().nullable(),
   reviewStatus: z.enum(["needs_review", "confirmed"]),
+  reviewReason: z.string().nullable(),
   affectsPersonalSpend: z.boolean(),
 });
 
@@ -40,14 +42,29 @@ const allocationPurposeTotalsSchema = z.object({
   excluded: z.number().int(),
 });
 
+const economicEffectTotalsSchema = z.object(
+  Object.fromEntries(
+    economicEffectTypes.map((effectType) => [effectType, z.number().int()]),
+  ) as Record<(typeof economicEffectTypes)[number], z.ZodNumber>,
+);
+
 const monthlyReportSchema = z.object({
   month: z.string(),
   cashflowNetMinorUnits: z.number().int(),
   moneyInMinorUnits: z.number().int(),
   moneyOutMinorUnits: z.number().int(),
+  actualPersonalSpendMinorUnits: z.number().int(),
   personalSpendMinorUnits: z.number().int(),
   businessOrReimbursableMinorUnits: z.number().int(),
   sharedSpendMinorUnits: z.number().int(),
+  sharedAwaitingRepaymentMinorUnits: z.number().int(),
+  movedOrSavedMinorUnits: z.number().int(),
+  incomeNewMoneyMinorUnits: z.number().int(),
+  notPersonalBudgetMinorUnits: z.number().int(),
+  creditCardPaymentMinorUnits: z.number().int(),
+  refundOrRepaymentMinorUnits: z.number().int(),
+  unresolvedImpactMinorUnits: z.number().int(),
+  economicEffectTotals: economicEffectTotalsSchema,
   allocationByPurpose: allocationPurposeTotalsSchema,
   monthEndOutstandingByPurpose: allocationPurposeTotalsSchema,
   monthEndCreditCardLiabilityMinorUnits: z.number().int(),
@@ -168,6 +185,18 @@ const allocationDecisionPayloadSchema = z.object({
     .optional(),
 });
 
+const localClassificationRulesApplySchema = z.object({
+  ruleCount: z.number().int(),
+  matchedTransactionCount: z.number().int(),
+  createdReviewItemCount: z.number().int(),
+  resolvedReviewItemCount: z.number().int(),
+  updatedLedgerEntryCount: z.number().int(),
+});
+
+export type LocalClassificationRulesApplyResult = z.infer<
+  typeof localClassificationRulesApplySchema
+>;
+
 export async function fetchTransactions(): Promise<Transaction[]> {
   const response = await fetch("/api/transactions");
 
@@ -272,6 +301,18 @@ export async function submitAllocationDecision(
   }
 
   return allocationDecisionSchema.parse(await response.json());
+}
+
+export async function applyLocalClassificationRules(): Promise<LocalClassificationRulesApplyResult> {
+  const response = await fetch("/api/local-classification-rules/apply", {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to apply local rules: ${response.status}`);
+  }
+
+  return localClassificationRulesApplySchema.parse(await response.json());
 }
 
 function csvImportFormData(request: CsvImportRequest) {

@@ -19,6 +19,17 @@ export type {
   SettlementType,
 } from "./allocations/economic-allocation";
 export {
+  calculateEconomicEffectTotals,
+  deriveEconomicEffects,
+  economicEffectTypes,
+} from "./effects/economic-effect";
+export type {
+  EconomicEffect,
+  EconomicEffectReviewItem,
+  EconomicEffectTotals,
+  EconomicEffectType,
+} from "./effects/economic-effect";
+export {
   detectFileImportSource,
   parseAmexTransactionsCsv,
   parseFixtureTransactionsCsv,
@@ -29,11 +40,14 @@ export { fileImportSources, importSources } from "./imports/source";
 export type { FileImportSource, ImportSource } from "./imports/source";
 export {
   classifyTransaction,
+  classifyTransactionWithLocalRules,
   classificationConfidences,
 } from "./rules/classification";
 export type {
   ClassificationConfidence,
   ClassificationReason,
+  LocalClassificationRule,
+  MatchedClassificationRule,
   TransactionClassification,
 } from "./rules/classification";
 export { affectsPersonalSpend } from "./rules/spending";
