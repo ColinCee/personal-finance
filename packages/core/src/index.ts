@@ -42,6 +42,7 @@ export {
   classifyTransaction,
   classifyTransactionWithLocalRules,
   classificationConfidences,
+  isSavingOrInvestmentMovementDescription,
 } from "./rules/classification";
 export type {
   ClassificationConfidence,

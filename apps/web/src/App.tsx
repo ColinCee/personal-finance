@@ -16,12 +16,44 @@ import {
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-import type {
-  AllocationPurpose,
-  EntryKind,
-  FileImportSource,
+import {
+  isSavingOrInvestmentMovementDescription,
+  type AllocationPurpose,
+  type EntryKind,
+  type FileImportSource,
 } from "@personal-finance/core";
-import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   applyLocalClassificationRules,
   commitCsvImport,
@@ -36,6 +68,7 @@ import {
   type MonthlyReport,
   type Transaction,
 } from "./api";
+import { cn } from "./lib/utils";
 import "./styles.css";
 
 const rootRoute = createRootRoute({
@@ -108,37 +141,51 @@ function RootLayout() {
         </Link>
 
         <nav aria-label="Primary" className="app-nav">
-          <Link
-            activeOptions={{ exact: true }}
-            activeProps={{ className: "app-nav-link active" }}
-            inactiveProps={{ className: "app-nav-link" }}
-            to="/"
-          >
+          <AppNavLink exact to="/">
             Dashboard
-          </Link>
-          <Link
-            activeProps={{ className: "app-nav-link active" }}
-            inactiveProps={{ className: "app-nav-link" }}
-            to="/imports"
-          >
-            Imports
-          </Link>
-          <Link
-            activeProps={{ className: "app-nav-link active" }}
-            inactiveProps={{ className: "app-nav-link" }}
-            to="/review"
-          >
-            Review
-          </Link>
+          </AppNavLink>
+          <AppNavLink to="/imports">Imports</AppNavLink>
+          <AppNavLink to="/review">Review</AppNavLink>
         </nav>
 
-        <div className="chrome-status">
-          <span className="status-pill">Fake data</span>
-          <span className="status-pill muted">Local SQLite</span>
-        </div>
+        <HeaderBadges
+          className="chrome-status"
+          labels={["Fake data", "Local SQLite"]}
+        />
       </header>
       <Outlet />
     </main>
+  );
+}
+
+function AppNavLink(props: {
+  children: ReactNode;
+  exact?: boolean;
+  to: "/" | "/imports" | "/review";
+}) {
+  const activeClassName = buttonVariants({
+    className: "rounded-full px-3",
+    size: "sm",
+    variant: "default",
+  });
+  const inactiveClassName = buttonVariants({
+    className: cn(
+      "rounded-full px-3 text-muted-foreground",
+      "hover:text-foreground",
+    ),
+    size: "sm",
+    variant: "ghost",
+  });
+
+  return (
+    <Link
+      activeOptions={props.exact ? { exact: true } : undefined}
+      activeProps={{ className: activeClassName }}
+      inactiveProps={{ className: inactiveClassName }}
+      to={props.to}
+    >
+      {props.children}
+    </Link>
   );
 }
 
@@ -156,12 +203,15 @@ function Dashboard() {
     <div className="dashboard-stack">
       <PageHeader
         aside={
-          <div className="page-actions">
-            <span className="status-pill">{reviewItemCount} open reviews</span>
-            <span className="status-pill muted">
-              {latestReport ? formatMonth(latestReport.month) : "No report yet"}
-            </span>
-          </div>
+          <HeaderStats
+            items={[
+              { label: "open reviews", value: reviewItemCount },
+              {
+                label: latestReport ? "latest report" : "report status",
+                value: latestReport ? formatMonth(latestReport.month) : "None",
+              },
+            ]}
+          />
         }
         description="A reviewed ledger view that separates real spending from transfers, Amex payments, reimbursements, and joint-account settlements."
         eyebrow="Dashboard"
@@ -258,12 +308,7 @@ function ImportWorkspace() {
   return (
     <div className="import-stack">
       <PageHeader
-        aside={
-          <div className="page-actions">
-            <span className="status-pill">CSV upload</span>
-            <span className="status-pill muted">Preview first</span>
-          </div>
-        }
+        aside={<HeaderBadges labels={["CSV upload", "Preview first"]} />}
         description="Drop in a bank export, let the app detect the format, then import only after seeing what will need review."
         eyebrow="Imports"
         title="Import workspace"
@@ -381,7 +426,8 @@ function ReviewInbox() {
   const pendingReviewItemId =
     reviewDecision.isPending || allocationDecision.isPending
       ? (reviewDecision.variables?.reviewItemId ??
-        allocationDecision.variables?.reviewItemId)
+        allocationDecision.variables?.reviewItemId ??
+        null)
       : null;
 
   if (transactions.isLoading) {
@@ -427,15 +473,13 @@ function ReviewInbox() {
     <div className="review-stack">
       <PageHeader
         aside={
-          <div className="page-actions">
-            <span className="status-pill">{rows.length} need action</span>
-            <span className="status-pill muted">
-              {autoIdentifiedRows.length} auto-identified
-            </span>
-            <span className="status-pill muted">
-              {allRows.length} ledger rows
-            </span>
-          </div>
+          <HeaderStats
+            items={[
+              { label: "need action", value: rows.length },
+              { label: "auto-identified", value: autoIdentifiedRows.length },
+              { label: "ledger rows", value: allRows.length },
+            ]}
+          />
         }
         description="Confirm uncertain imports before they affect your economic reports."
         eyebrow="Review"
@@ -457,34 +501,43 @@ function ReviewInbox() {
                 : "Private local rules can auto-file rows for you, but they stay visible here so the behaviour is inspectable."}
             </p>
           </div>
-          <div className="review-queue-summary">
+          <div className="review-queue-metric">
+            <span>Showing</span>
             <strong>{displayedRows.length}</strong>
-            <span>{activeReviewTab === "needs_action" ? "open" : "auto"}</span>
+            <span>
+              {activeReviewTab === "needs_action" ? "open rows" : "auto rows"}
+            </span>
           </div>
         </div>
 
-        <div className="review-tabs" role="tablist" aria-label="Review inbox">
-          <button
-            aria-selected={activeReviewTab === "needs_action"}
-            className="review-tab"
-            onClick={() => setActiveReviewTab("needs_action")}
-            role="tab"
-            type="button"
-          >
-            Needs action
-            <span>{rows.length}</span>
-          </button>
-          <button
-            aria-selected={activeReviewTab === "auto_identified"}
-            className="review-tab"
-            onClick={() => setActiveReviewTab("auto_identified")}
-            role="tab"
-            type="button"
-          >
-            Auto-identified
-            <span>{autoIdentifiedRows.length}</span>
-          </button>
-        </div>
+        <Tabs
+          className="review-tabs"
+          onValueChange={(value) => {
+            if (value === "needs_action" || value === "auto_identified") {
+              setActiveReviewTab(value);
+            }
+          }}
+          value={activeReviewTab}
+        >
+          <TabsList aria-label="Review inbox" variant="line">
+            <TabsTrigger
+              onClick={() => setActiveReviewTab("needs_action")}
+              value="needs_action"
+            >
+              Needs action
+              <span className="tab-count">{rows.length}</span>
+            </TabsTrigger>
+            <TabsTrigger
+              onClick={() => setActiveReviewTab("auto_identified")}
+              value="auto_identified"
+            >
+              Auto-identified
+              <span className="tab-count">{autoIdentifiedRows.length}</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <ReviewDecisionGuide />
 
         {reviewDecision.isError || allocationDecision.isError ? (
           <p className="decision-error" role="alert">
@@ -500,10 +553,10 @@ function ReviewInbox() {
 
         <div className="local-rules-bar">
           <div>
-            <strong>Edited private rules?</strong>
+            <strong>Refresh classifiers</strong>
             <span>
-              Reload the ignored JSON file and apply matching rules to existing
-              unresolved rows.
+              Apply public automation and reload the ignored private rules for
+              existing unresolved rows.
             </span>
           </div>
           <Button
@@ -512,16 +565,18 @@ function ReviewInbox() {
             type="button"
             variant="secondary"
           >
-            {localRulesApply.isPending ? "Reloading..." : "Reload rules"}
+            {localRulesApply.isPending ? "Refreshing..." : "Refresh rules"}
           </Button>
         </div>
 
         {localRulesApply.isSuccess ? (
           <p className="rules-apply-summary" role="status">
-            Applied {localRulesApply.data.ruleCount} private rules.{" "}
-            {localRulesApply.data.matchedTransactionCount} rows matched;{" "}
-            {localRulesApply.data.resolvedReviewItemCount} moved from Needs
-            action and {localRulesApply.data.createdReviewItemCount} marked as
+            Refreshed classifiers:{" "}
+            {localRulesApply.data.automatedMatchedTransactionCount} public-rule
+            matches and {localRulesApply.data.privateMatchedTransactionCount}{" "}
+            private-rule matches. {localRulesApply.data.resolvedReviewItemCount}{" "}
+            moved from Needs action and{" "}
+            {localRulesApply.data.createdReviewItemCount} marked as
             auto-identified.
           </p>
         ) : null}
@@ -540,30 +595,14 @@ function ReviewInbox() {
             </span>
           </div>
         ) : activeReviewTab === "needs_action" ? (
-          <div className="review-card-list">
-            {displayedRows.map((transaction) => (
-              <ReviewDecisionCard
-                key={transaction.id}
-                pending={pendingReviewItemId === transaction.reviewItemId}
-                transaction={transaction}
-                onAllocationDecision={(allocationChoice) =>
-                  decideAllocation(transaction, allocationChoice)
-                }
-                onDecision={(decidedKind) =>
-                  decideKind(transaction, decidedKind)
-                }
-              />
-            ))}
-          </div>
+          <ReviewDecisionTable
+            onAllocationDecision={decideAllocation}
+            onDecision={decideKind}
+            pendingReviewItemId={pendingReviewItemId}
+            transactions={displayedRows}
+          />
         ) : (
-          <div className="review-card-list">
-            {displayedRows.map((transaction) => (
-              <AutoIdentifiedCard
-                key={transaction.id}
-                transaction={transaction}
-              />
-            ))}
-          </div>
+          <AutoIdentifiedTable transactions={displayedRows} />
         )}
       </section>
     </div>
@@ -589,6 +628,33 @@ function PageHeader(props: {
         <div className="page-header-aside">{props.aside}</div>
       ) : null}
     </section>
+  );
+}
+
+function HeaderStats(props: {
+  items: Array<{ label: string; value: ReactNode }>;
+}) {
+  return (
+    <dl className="header-stats">
+      {props.items.map((item) => (
+        <div key={item.label}>
+          <dt>{item.label}</dt>
+          <dd>{item.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function HeaderBadges(props: { className?: string; labels: string[] }) {
+  return (
+    <div className={cn("header-badges", props.className)}>
+      {props.labels.map((label) => (
+        <Badge key={label} variant="outline">
+          {label}
+        </Badge>
+      ))}
+    </div>
   );
 }
 
@@ -747,128 +813,311 @@ function ImportHistoryPanel(props: {
   );
 }
 
-function ReviewDecisionCard(props: {
+function ReviewDecisionGuide() {
+  const items = [
+    {
+      when: "Money in",
+      choose: "Income, Refund / payout, or Transfer",
+      why: "Positive money is not a purchase, so Spend is hidden.",
+    },
+    {
+      when: "Money out",
+      choose: "Mark as spend, Shared spend, Transfer, or Card payment",
+      why: "Outflows can be purchases, splits, balance movements, or card payments.",
+    },
+    {
+      when: "Salary / new money",
+      choose: "Income",
+      why: "Only use income when your budget genuinely got new money.",
+    },
+    {
+      when: "Refund, repayment, insurance payout",
+      choose: "Refund / payout",
+      why: "Money returned after a cost or loss is not income.",
+    },
+    {
+      when: "Pots, savings, Flex, own account",
+      choose: "Transfer",
+      why: "Your money moved location; your wealth did not change.",
+    },
+    {
+      when: "Someone owes part",
+      choose: "Shared spend",
+      why: "Only your share is personal spend; the rest is awaiting repayment.",
+    },
+  ];
+
+  return (
+    <Collapsible className="review-guide">
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle>Decision guide</CardTitle>
+          <CardDescription>
+            Rows only show choices that make sense for their money direction.
+          </CardDescription>
+          <CollapsibleTrigger asChild>
+            <Button size="sm" type="button" variant="outline">
+              How should I choose?
+            </Button>
+          </CollapsibleTrigger>
+        </CardHeader>
+        <CollapsibleContent>
+          <Separator />
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>If this is...</TableHead>
+                  <TableHead>Choose</TableHead>
+                  <TableHead>Why</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow key={item.when}>
+                    <TableCell>{item.when}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{item.choose}</Badge>
+                    </TableCell>
+                    <TableCell>{item.why}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
+  );
+}
+
+function ReviewDecisionTable(props: {
+  pendingReviewItemId: string | null;
+  transactions: Transaction[];
+  onDecision: (transaction: Transaction, decidedKind: EntryKind) => void;
+  onAllocationDecision: (
+    transaction: Transaction,
+    choice: AllocationChoice,
+  ) => void;
+}) {
+  return (
+    <Card className="review-ledger-card" size="sm">
+      <CardContent>
+        <Table className="review-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Transaction</TableHead>
+              <TableHead>Amount</TableHead>
+              <TableHead>Recommended</TableHead>
+              <TableHead className="review-table-actions">Other</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {props.transactions.map((transaction) => (
+              <ReviewDecisionTableRow
+                key={transaction.id}
+                onAllocationDecision={props.onAllocationDecision}
+                onDecision={props.onDecision}
+                pending={props.pendingReviewItemId === transaction.reviewItemId}
+                transaction={transaction}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReviewDecisionTableRow(props: {
   pending: boolean;
   transaction: Transaction;
-  onDecision: (decidedKind: EntryKind) => void;
-  onAllocationDecision: (choice: AllocationChoice) => void;
+  onDecision: (transaction: Transaction, decidedKind: EntryKind) => void;
+  onAllocationDecision: (
+    transaction: Transaction,
+    choice: AllocationChoice,
+  ) => void;
 }) {
-  if (
-    props.transaction.reviewStatus === "confirmed" ||
-    !props.transaction.reviewItemId
-  ) {
-    return null;
-  }
-
   const choices = reviewChoicesForTransaction(props.transaction);
   const [recommendedChoice, ...alternativeChoices] = choices;
   const isMoneyIn = props.transaction.amountMinorUnits >= 0;
 
   return (
-    <article className="review-card">
-      <div className="review-transaction-copy">
-        <div className="review-meta">
-          <time dateTime={props.transaction.postedOn}>
-            {props.transaction.postedOn}
-          </time>
-          <span>{props.transaction.source}</span>
-          <span>Detected {formatEntryKind(props.transaction.kind)}</span>
-        </div>
-        <h3>{props.transaction.description}</h3>
-      </div>
-
-      <div className="review-amount-badge">
-        <span>{isMoneyIn ? "Money in" : "Money out"}</span>
-        <strong
-          className={isMoneyIn ? "review-amount positive" : "review-amount"}
-        >
-          {formatCurrencyFromMinorUnits(props.transaction.amountMinorUnits)}
-        </strong>
-      </div>
-
-      {recommendedChoice ? (
-        <button
-          aria-label={recommendedChoice.label}
-          className="review-choice recommended"
-          disabled={props.pending}
-          onClick={() =>
-            executeReviewChoice(recommendedChoice, {
-              onAllocationDecision: props.onAllocationDecision,
-              onDecision: props.onDecision,
-            })
-          }
-          type="button"
-        >
-          <span className="choice-kicker">Recommended</span>
-          <strong>
-            {props.pending ? "Saving..." : recommendedChoice.label}
-          </strong>
-          <small>{recommendedChoice.description}</small>
-        </button>
-      ) : null}
-
-      {alternativeChoices.length > 0 ? (
-        <details className="review-alternatives">
-          <summary>
-            Other choices
-            <span>{alternativeChoices.length}</span>
-          </summary>
-          <div className="review-choice-grid">
-            {alternativeChoices.map((choice) => (
-              <button
-                aria-label={choice.label}
-                className="review-choice"
-                disabled={props.pending}
-                key={choice.id}
-                onClick={() =>
-                  executeReviewChoice(choice, {
-                    onAllocationDecision: props.onAllocationDecision,
-                    onDecision: props.onDecision,
-                  })
-                }
-                type="button"
-              >
-                <strong>{choice.label}</strong>
-                <small>{choice.description}</small>
-              </button>
-            ))}
+    <TableRow>
+      <TableCell>
+        <div className="review-transaction-cell">
+          <div className="review-meta">
+            <time dateTime={props.transaction.postedOn}>
+              {props.transaction.postedOn}
+            </time>
+            <Badge variant="outline">
+              {formatTransactionSource(props.transaction.source)}
+            </Badge>
           </div>
-        </details>
-      ) : null}
-    </article>
+          <strong>{props.transaction.description}</strong>
+          <span>{formatReviewReason(props.transaction.reviewReason)}</span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="review-table-amount">
+          <Badge variant={isMoneyIn ? "secondary" : "outline"}>
+            {isMoneyIn ? "Money in" : "Money out"}
+          </Badge>
+          <strong>
+            {formatCurrencyFromMinorUnits(props.transaction.amountMinorUnits)}
+          </strong>
+        </div>
+      </TableCell>
+      <TableCell>
+        {recommendedChoice ? (
+          <div className="recommended-action">
+            <Button
+              disabled={props.pending}
+              onClick={() =>
+                executeReviewChoice(recommendedChoice, {
+                  onAllocationDecision: (choice) =>
+                    props.onAllocationDecision(props.transaction, choice),
+                  onDecision: (decidedKind) =>
+                    props.onDecision(props.transaction, decidedKind),
+                })
+              }
+              size="sm"
+              type="button"
+            >
+              {props.pending ? "Saving..." : recommendedChoice.label}
+            </Button>
+            <span>{recommendedChoice.description}</span>
+          </div>
+        ) : null}
+      </TableCell>
+      <TableCell className="review-table-actions">
+        <ReviewChoiceMenu
+          choices={alternativeChoices}
+          disabled={props.pending}
+          onAllocationDecision={(choice) =>
+            props.onAllocationDecision(props.transaction, choice)
+          }
+          onDecision={props.onDecision}
+          transaction={props.transaction}
+        />
+      </TableCell>
+    </TableRow>
   );
 }
 
-function AutoIdentifiedCard(props: { transaction: Transaction }) {
+function ReviewChoiceMenu(props: {
+  choices: ReviewChoice[];
+  disabled: boolean;
+  transaction: Transaction;
+  onDecision: (transaction: Transaction, decidedKind: EntryKind) => void;
+  onAllocationDecision: (choice: AllocationChoice) => void;
+}) {
+  if (props.choices.length === 0) {
+    return <span className="muted-dash">-</span>;
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          aria-label="Other choices"
+          disabled={props.disabled}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Other choices
+          <Badge variant="secondary">{props.choices.length}</Badge>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="review-choice-menu">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Choose instead</DropdownMenuLabel>
+          {props.choices.map((choice) => (
+            <DropdownMenuItem
+              key={choice.id}
+              onSelect={() =>
+                executeReviewChoice(choice, {
+                  onAllocationDecision: props.onAllocationDecision,
+                  onDecision: (decidedKind) =>
+                    props.onDecision(props.transaction, decidedKind),
+                })
+              }
+            >
+              <div className="review-menu-choice">
+                <strong>{choice.label}</strong>
+                <span>{choice.description}</span>
+              </div>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function AutoIdentifiedTable(props: { transactions: Transaction[] }) {
+  return (
+    <Card className="review-ledger-card" size="sm">
+      <CardContent>
+        <Table className="review-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Transaction</TableHead>
+              <TableHead>Amount</TableHead>
+              <TableHead>Decision</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {props.transactions.map((transaction) => (
+              <AutoIdentifiedTableRow
+                key={transaction.id}
+                transaction={transaction}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AutoIdentifiedTableRow(props: { transaction: Transaction }) {
   const isMoneyIn = props.transaction.amountMinorUnits >= 0;
 
   return (
-    <article className="review-card auto-identified-card">
-      <div className="review-transaction-copy">
-        <div className="review-meta">
-          <time dateTime={props.transaction.postedOn}>
-            {props.transaction.postedOn}
-          </time>
-          <span>{props.transaction.source}</span>
+    <TableRow>
+      <TableCell>
+        <div className="review-transaction-cell">
+          <div className="review-meta">
+            <time dateTime={props.transaction.postedOn}>
+              {props.transaction.postedOn}
+            </time>
+            <Badge variant="outline">
+              {formatTransactionSource(props.transaction.source)}
+            </Badge>
+          </div>
+          <strong>{props.transaction.description}</strong>
           <span>{formatPrivateRuleReason(props.transaction.reviewReason)}</span>
         </div>
-        <h3>{props.transaction.description}</h3>
-      </div>
-
-      <div className="review-amount-badge">
-        <span>{isMoneyIn ? "Money in" : "Money out"}</span>
-        <strong
-          className={isMoneyIn ? "review-amount positive" : "review-amount"}
-        >
-          {formatCurrencyFromMinorUnits(props.transaction.amountMinorUnits)}
-        </strong>
-      </div>
-
-      <div className="auto-decision-pill">
-        <span>Auto-filed</span>
-        <strong>{formatEntryKind(props.transaction.kind)}</strong>
-      </div>
-    </article>
+      </TableCell>
+      <TableCell>
+        <div className="review-table-amount">
+          <Badge variant={isMoneyIn ? "secondary" : "outline"}>
+            {isMoneyIn ? "Money in" : "Money out"}
+          </Badge>
+          <strong>
+            {formatCurrencyFromMinorUnits(props.transaction.amountMinorUnits)}
+          </strong>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="auto-decision-pill">
+          <Badge>Auto-filed</Badge>
+          <strong>{formatEntryKind(props.transaction.kind)}</strong>
+        </div>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -906,6 +1155,27 @@ function formatPrivateRuleReason(reason: string | null): string {
     : null;
 
   return ruleId ? `Private rule ${ruleId}` : "Private rule";
+}
+
+function formatReviewReason(reason: string | null): string {
+  switch (reason) {
+    case "positive_amount_uncertain":
+      return "Positive credit needs a budget decision";
+    case "saving_or_investment_movement":
+      return "Savings or investment movement";
+    case "source_supplied_kind":
+      return "Imported category needs confirmation";
+    case "split_settlement":
+      return "Possible shared spend";
+    case "shared_repayment":
+      return "Possible repayment";
+    case "reimbursement":
+      return "Possible refund or payout";
+    case "credit_card_payment":
+      return "Possible card payment";
+    default:
+      return reason ? reason.replaceAll("_", " ") : "Needs review";
+  }
 }
 
 type AllocationChoice = {
@@ -1135,12 +1405,25 @@ function formatFileImportSource(source: FileImportSource) {
   }
 }
 
+function formatTransactionSource(source: string): string {
+  switch (source) {
+    case "amex":
+    case "fake-amex":
+      return "Amex";
+    case "monzo":
+    case "fake-monzo":
+      return "Monzo";
+    default:
+      return source;
+  }
+}
+
 const decisionKindOptions: { kind: EntryKind; label: string }[] = [
-  { kind: "income", label: "income / new money" },
-  { kind: "spend", label: "personal spend" },
-  { kind: "transfer", label: "transfer, saving, or investment" },
-  { kind: "credit_card_payment", label: "credit-card payment" },
-  { kind: "reimbursement", label: "refund or repayment" },
+  { kind: "income", label: "income" },
+  { kind: "spend", label: "spend" },
+  { kind: "transfer", label: "transfer" },
+  { kind: "credit_card_payment", label: "card payment" },
+  { kind: "reimbursement", label: "refund / payout" },
 ];
 
 const spendCorrectionKinds = new Set<EntryKind>([
@@ -1164,16 +1447,16 @@ function kindCorrectionOptionsForTransaction(
     .filter((option) => allowedKinds.has(option.kind))
     .map((option) => ({
       kind: option.kind,
-      label: `Treat as ${option.label}`,
+      label: `Mark as ${option.label}`,
     }));
 }
 
 const entryKindLabels: Record<EntryKind, string> = {
-  income: "income / new money",
-  spend: "personal spend",
-  transfer: "transfer, saving, or investment",
-  credit_card_payment: "credit-card payment",
-  reimbursement: "refund or repayment",
+  income: "income",
+  spend: "spend",
+  transfer: "transfer",
+  credit_card_payment: "card payment",
+  reimbursement: "refund / payout",
   split_settlement: "shared spend",
 };
 
@@ -1209,11 +1492,7 @@ function allocationChoicesForTransaction(
   const personalShareMinorUnits = amountMinorUnits - halfMinorUnits;
 
   return [
-    fullAllocationChoice(
-      "Counts as my personal spend",
-      "personal",
-      amountMinorUnits,
-    ),
+    fullAllocationChoice("Mark as spend", "personal", amountMinorUnits),
     fullAllocationChoice("Not personal budget", "excluded", amountMinorUnits),
     fullAllocationChoice(
       "Old business / reimbursable",
@@ -1293,13 +1572,20 @@ function reviewChoicesForTransaction(transaction: Transaction): ReviewChoice[] {
     const transferChoice = kindChoices.find(
       (choice) => choice.type === "kind" && choice.decidedKind === "transfer",
     );
+    const likelyOwnMoneyMovement = isLikelyOwnMoneyMovement(transaction);
 
     return compactReviewChoices([
+      likelyOwnMoneyMovement && transaction.kind === "transfer"
+        ? currentKindChoice
+        : undefined,
+      likelyOwnMoneyMovement && transaction.kind !== "transfer"
+        ? transferChoice
+        : undefined,
       transaction.kind === "reimbursement"
         ? currentKindChoice
         : reimbursementChoice,
       currentKindChoice,
-      transferChoice,
+      likelyOwnMoneyMovement ? undefined : transferChoice,
       ...kindChoices,
     ]);
   }
@@ -1341,6 +1627,14 @@ function reviewChoicesForTransaction(transaction: Transaction): ReviewChoice[] {
     ...kindChoices,
     ...allocationChoices,
   ]);
+}
+
+function isLikelyOwnMoneyMovement(transaction: Transaction): boolean {
+  return (
+    transaction.reviewReason === "pot_transfer" ||
+    transaction.reviewReason === "saving_or_investment_movement" ||
+    isSavingOrInvestmentMovementDescription(transaction.description)
+  );
 }
 
 function compactReviewChoices(
@@ -1398,17 +1692,17 @@ function executeReviewChoice(
 function descriptionForKindChoice(kind: EntryKind): string {
   switch (kind) {
     case "credit_card_payment":
-      return "Keeps this out of spend and treats it as card balance movement.";
+      return "Pays down the card balance.";
     case "income":
-      return "Adds this as income / new money. It will not reduce spending.";
+      return "New money coming in.";
     case "reimbursement":
-      return "Treats this as money coming back, not new income.";
+      return "Refunds, repayments, reimbursements, and payouts; not income.";
     case "spend":
-      return "Uses the detected spend type without adding a split.";
+      return "Counts as your spending.";
     case "split_settlement":
       return "Keeps it flagged as shared spend for later split detail.";
     case "transfer":
-      return "Keeps it out of spend and income as moved, saved, or invested money.";
+      return "Moved between your accounts, pots, or savings.";
   }
 }
 

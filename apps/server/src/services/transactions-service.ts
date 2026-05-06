@@ -9,13 +9,14 @@ import type {
 } from "@personal-finance/core";
 
 import type {
+  ApplyAutomatedClassificationRulesResult,
   ApplyLocalClassificationRulesResult,
   TransactionsRepository,
 } from "../repositories/transactions-repository";
 
 export type TransactionsService = {
   listReviewTransactions: () => ReviewTransaction[];
-  applyLocalClassificationRules: () => ApplyLocalClassificationRulesResult;
+  applyClassificationRules: () => ApplyClassificationRulesResult;
   recordReviewDecision: (
     decision: ReviewDecisionRequest,
   ) => ReviewDecisionResponse;
@@ -23,6 +24,12 @@ export type TransactionsService = {
     decision: AllocationDecisionRequest,
   ) => AllocationDecisionResponse;
 };
+
+export type ApplyClassificationRulesResult =
+  ApplyLocalClassificationRulesResult & {
+    automatedMatchedTransactionCount: number;
+    privateMatchedTransactionCount: number;
+  };
 
 export type ReviewDecisionRequest = {
   reviewItemId: string;
@@ -72,10 +79,15 @@ export function createTransactionsService(
   return {
     listReviewTransactions: () =>
       transactionsRepository.listReviewTransactions(),
-    applyLocalClassificationRules: () =>
-      transactionsRepository.applyLocalClassificationRules(
+    applyClassificationRules: () => {
+      const automatedResult =
+        transactionsRepository.applyAutomatedClassificationRules();
+      const localResult = transactionsRepository.applyLocalClassificationRules(
         options.localClassificationRulesProvider?.() ?? [],
-      ),
+      );
+
+      return combineClassificationRuleResults(automatedResult, localResult);
+    },
     recordReviewDecision: (decision) =>
       transactionsRepository.appendReviewDecision({
         id: `review_decision_${randomUUID()}`,
@@ -95,5 +107,28 @@ export function createTransactionsService(
           ...settlement,
         })),
       }),
+  };
+}
+
+function combineClassificationRuleResults(
+  automatedResult: ApplyAutomatedClassificationRulesResult,
+  localResult: ApplyLocalClassificationRulesResult,
+): ApplyClassificationRulesResult {
+  return {
+    ruleCount: localResult.ruleCount,
+    automatedMatchedTransactionCount: automatedResult.matchedTransactionCount,
+    privateMatchedTransactionCount: localResult.matchedTransactionCount,
+    matchedTransactionCount:
+      automatedResult.matchedTransactionCount +
+      localResult.matchedTransactionCount,
+    createdReviewItemCount:
+      automatedResult.createdReviewItemCount +
+      localResult.createdReviewItemCount,
+    resolvedReviewItemCount:
+      automatedResult.resolvedReviewItemCount +
+      localResult.resolvedReviewItemCount,
+    updatedLedgerEntryCount:
+      automatedResult.updatedLedgerEntryCount +
+      localResult.updatedLedgerEntryCount,
   };
 }

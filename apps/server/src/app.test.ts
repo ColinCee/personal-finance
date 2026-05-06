@@ -142,6 +142,120 @@ describe("app", () => {
     }
   });
 
+  test("reloads public classifier rules and resolves existing automated rows", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      seedAppReviewFixture(testDatabase.db, {
+        amountMinorUnits: 5000,
+        description: "Instant Access Pot",
+        kind: "income",
+      });
+      const app = createApp(testDatabase.db);
+      const response = await app.request(
+        "/api/local-classification-rules/apply",
+        { method: "POST" },
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        ruleCount: 0,
+        automatedMatchedTransactionCount: 1,
+        privateMatchedTransactionCount: 0,
+        matchedTransactionCount: 1,
+        resolvedReviewItemCount: 1,
+        updatedLedgerEntryCount: 1,
+      });
+      expect(testDatabase.db.select().from(ledgerEntries).get()).toMatchObject({
+        kind: "transfer",
+      });
+      expect(testDatabase.db.select().from(reviewItems).get()).toMatchObject({
+        reason: "pot_transfer",
+        status: "confirmed",
+      });
+      expect(
+        testDatabase.db.select().from(reviewDecisions).get(),
+      ).toMatchObject({
+        decidedKind: "transfer",
+        note: "Auto-identified by public classifier.",
+      });
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("reloads public classifier rules and resolves existing zero-amount rows", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      seedAppReviewFixture(testDatabase.db, {
+        amountMinorUnits: 0,
+        description: "Zero balance correction",
+        kind: "income",
+      });
+      const app = createApp(testDatabase.db);
+      const response = await app.request(
+        "/api/local-classification-rules/apply",
+        { method: "POST" },
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        automatedMatchedTransactionCount: 1,
+        matchedTransactionCount: 1,
+        resolvedReviewItemCount: 1,
+        updatedLedgerEntryCount: 1,
+      });
+      expect(testDatabase.db.select().from(ledgerEntries).get()).toMatchObject({
+        kind: "transfer",
+      });
+      expect(testDatabase.db.select().from(reviewItems).get()).toMatchObject({
+        reason: "zero_amount",
+        status: "confirmed",
+      });
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
+  test("reloads public classifier rules and resolves existing Monzo Flex rows", async () => {
+    const testDatabase = createTestDatabase();
+
+    try {
+      seedAppReviewFixture(testDatabase.db, {
+        amountMinorUnits: 40574,
+        description: "Flex payment for travel booking",
+        kind: "income",
+        raw: {
+          Type: "Flex",
+          Description: "Flex payment for travel booking",
+        },
+      });
+      const app = createApp(testDatabase.db);
+      const response = await app.request(
+        "/api/local-classification-rules/apply",
+        { method: "POST" },
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        automatedMatchedTransactionCount: 1,
+        matchedTransactionCount: 1,
+        resolvedReviewItemCount: 1,
+        updatedLedgerEntryCount: 1,
+      });
+      expect(testDatabase.db.select().from(ledgerEntries).get()).toMatchObject({
+        kind: "transfer",
+      });
+      expect(testDatabase.db.select().from(reviewItems).get()).toMatchObject({
+        reason: "monzo_flex",
+        status: "confirmed",
+      });
+    } finally {
+      testDatabase.cleanup();
+    }
+  });
+
   test("previews CSV imports with safe aggregate metadata only", async () => {
     const testDatabase = createTestDatabase();
 
@@ -790,6 +904,7 @@ function seedAppReviewFixture(
     amountMinorUnits: number;
     description: string;
     kind: EntryKind;
+    raw?: Record<string, string>;
   },
 ) {
   db.insert(accounts)
@@ -822,7 +937,7 @@ function seedAppReviewFixture(
       postedOn: "2026-05-02",
       description: entry.description,
       amountMinorUnits: entry.amountMinorUnits,
-      rawJson: JSON.stringify({ description: entry.description }),
+      rawJson: JSON.stringify(entry.raw ?? { description: entry.description }),
     })
     .run();
 

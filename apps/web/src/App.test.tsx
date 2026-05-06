@@ -75,6 +75,19 @@ const fakeTransactions = [
     reviewReason: "private_rule:household-repayments",
     affectsPersonalSpend: false,
   },
+  {
+    id: "txn_fake_6",
+    postedOn: "2026-05-07",
+    description: "Instant Access Pot",
+    amountMinorUnits: 5000,
+    currency: "GBP",
+    kind: "income",
+    source: "fake-monzo",
+    reviewItemId: "review_fake_6",
+    reviewStatus: "needs_review",
+    reviewReason: "positive_amount_uncertain",
+    affectsPersonalSpend: false,
+  },
 ];
 
 const fakeMonthlyReports = [
@@ -264,6 +277,8 @@ beforeEach(() => {
         ok: true,
         json: async () => ({
           ruleCount: 2,
+          automatedMatchedTransactionCount: 1,
+          privateMatchedTransactionCount: 2,
           matchedTransactionCount: 3,
           createdReviewItemCount: 1,
           resolvedReviewItemCount: 2,
@@ -295,9 +310,27 @@ test("renders the dashboard", async () => {
   expect(
     await screen.findByRole("heading", { name: "Economic overview" }),
   ).toBeInTheDocument();
-  expect(await screen.findByText("3 open")).toBeInTheDocument();
+  expect(await screen.findByText("4 open")).toBeInTheDocument();
   expect(await screen.findByText("Economic view")).toBeInTheDocument();
   expect(await screen.findByText("1 open / 2 flagged")).toBeInTheDocument();
+});
+
+test("renders the primary navigation", async () => {
+  render(<App />);
+
+  const navigation = await screen.findByRole("navigation", {
+    name: "Primary",
+  });
+
+  expect(
+    within(navigation).getByRole("link", { name: "Dashboard" }),
+  ).toHaveAttribute("href", "/");
+  expect(
+    within(navigation).getByRole("link", { name: "Imports" }),
+  ).toHaveAttribute("href", "/imports");
+  expect(
+    within(navigation).getByRole("link", { name: "Review" }),
+  ).toHaveAttribute("href", "/review");
 });
 
 test("submits a review decision from the inbox", async () => {
@@ -307,12 +340,10 @@ test("submits a review decision from the inbox", async () => {
   expect(await screen.findByText("Amex payment")).toBeInTheDocument();
   expect(screen.queryByText("Coffee")).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getAllByText("Other choices")[0]);
-  fireEvent.click(
-    screen.getByRole("button", {
-      name: "Use credit-card payment",
-    }),
+  fireEvent.pointerDown(
+    screen.getAllByRole("button", { name: "Other choices" })[0],
   );
+  fireEvent.click(await screen.findByText("Use card payment"));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -421,12 +452,10 @@ test("submits a split allocation from the inbox", async () => {
   window.history.pushState({}, "", "/review");
   render(<App />);
 
-  fireEvent.click((await screen.findAllByText("Other choices"))[1]);
-  fireEvent.click(
-    screen.getByRole("button", {
-      name: "Shared 50/50 - friend owes me",
-    }),
+  fireEvent.pointerDown(
+    (await screen.findAllByRole("button", { name: "Other choices" }))[1],
   );
+  fireEvent.click(await screen.findByText("Shared 50/50 - friend owes me"));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -457,6 +486,24 @@ test("submits a split allocation from the inbox", async () => {
   );
 });
 
+test("shows mark as spend on money-out rows", async () => {
+  window.history.pushState({}, "", "/review");
+  render(<App />);
+
+  const dinnerTransaction = await screen.findByText("Dinner");
+  const dinnerCard = dinnerTransaction.closest("tr");
+
+  if (!dinnerCard) {
+    throw new Error("Dinner transaction card was not rendered.");
+  }
+
+  expect(
+    within(dinnerCard).getByRole("button", {
+      name: "Mark as spend",
+    }),
+  ).toBeInTheDocument();
+});
+
 test("recommends repayment before income for positive credits", async () => {
   window.history.pushState({}, "", "/review");
   render(<App />);
@@ -464,7 +511,7 @@ test("recommends repayment before income for positive credits", async () => {
   const subscriptionTransaction = await screen.findByText(
     "Shared subscription payment",
   );
-  const subscriptionCard = subscriptionTransaction.closest("article");
+  const subscriptionCard = subscriptionTransaction.closest("tr");
 
   if (!subscriptionCard) {
     throw new Error("Shared subscription transaction card was not rendered.");
@@ -472,9 +519,34 @@ test("recommends repayment before income for positive credits", async () => {
 
   expect(
     within(subscriptionCard).getByRole("button", {
-      name: "Treat as refund or repayment",
+      name: "Mark as refund / payout",
     }),
   ).toBeInTheDocument();
+});
+
+test("recommends transfer for pot movements even when detected as income", async () => {
+  window.history.pushState({}, "", "/review");
+  render(<App />);
+
+  const potTransaction = await screen.findByText("Instant Access Pot");
+  const potCard = potTransaction.closest("tr");
+
+  if (!potCard) {
+    throw new Error("Instant Access Pot transaction card was not rendered.");
+  }
+
+  expect(
+    within(potCard).getByRole("button", {
+      name: "Mark as transfer",
+    }),
+  ).toBeInTheDocument();
+  expect(within(potCard).getByText("Monzo")).toBeInTheDocument();
+  expect(
+    within(potCard).queryByText("Looks like transfer"),
+  ).not.toBeInTheDocument();
+  expect(
+    within(potCard).queryByText("Detected income"),
+  ).not.toBeInTheDocument();
 });
 
 test("shows private-rule matches in the auto-identified tab", async () => {
@@ -487,14 +559,14 @@ test("shows private-rule matches in the auto-identified tab", async () => {
     await screen.findByText("Household subscription repayment"),
   ).toBeInTheDocument();
   expect(await screen.findByText("Auto-filed")).toBeInTheDocument();
-  expect(await screen.findByText("refund or repayment")).toBeInTheDocument();
+  expect(await screen.findByText("refund / payout")).toBeInTheDocument();
 });
 
 test("reloads private rules from the review page", async () => {
   window.history.pushState({}, "", "/review");
   render(<App />);
 
-  fireEvent.click(await screen.findByRole("button", { name: "Reload rules" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh rules" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -502,7 +574,19 @@ test("reloads private rules from the review page", async () => {
       expect.objectContaining({ method: "POST" }),
     ),
   );
+  expect(await screen.findByText(/Refreshed classifiers/)).toBeInTheDocument();
+});
+
+test("shows a compact guide for choosing review categories", async () => {
+  window.history.pushState({}, "", "/review");
+  render(<App />);
+
+  fireEvent.click(
+    await screen.findByRole("button", { name: "How should I choose?" }),
+  );
+
+  expect(await screen.findByText("Refund / payout")).toBeInTheDocument();
   expect(
-    await screen.findByText(/Applied 2 private rules/),
+    await screen.findByText(/Positive money is not a purchase/),
   ).toBeInTheDocument();
 });

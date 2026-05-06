@@ -9,9 +9,12 @@ export type ClassificationConfidence =
 
 export type ClassificationReason =
   | "ordinary_spend"
+  | "zero_amount"
   | "salary_income"
   | "credit_card_payment"
   | "internal_transfer"
+  | "pot_transfer"
+  | "monzo_flex"
   | "saving_or_investment_movement"
   | "shared_repayment"
   | "reimbursement"
@@ -31,7 +34,8 @@ export type TransactionClassification = {
 type ClassifiableTransaction = Pick<
   NormalizedTransactionInput,
   "amountMinorUnits" | "description" | "kind" | "source"
->;
+> &
+  Partial<Pick<NormalizedTransactionInput, "raw">>;
 
 export type LocalClassificationRule = {
   id: string;
@@ -59,6 +63,10 @@ export function classifyTransaction(
 ): TransactionClassification {
   const description = normalizeDescription(transaction.description);
 
+  if (transaction.amountMinorUnits === 0) {
+    return highConfidence("transfer", "zero_amount");
+  }
+
   if (isSalary(description) && transaction.amountMinorUnits > 0) {
     return highConfidence("income", "salary_income");
   }
@@ -67,7 +75,15 @@ export function classifyTransaction(
     return highConfidence("credit_card_payment", "credit_card_payment");
   }
 
-  if (isSavingOrInvestmentMovement(description)) {
+  if (isInstantAccessPotTransfer(description, transaction)) {
+    return highConfidence("transfer", "pot_transfer");
+  }
+
+  if (isMonzoFlexMovement(description, transaction)) {
+    return highConfidence("transfer", "monzo_flex");
+  }
+
+  if (isSavingOrInvestmentMovementDescription(description)) {
     return mediumConfidence("transfer", "saving_or_investment_movement");
   }
 
@@ -238,9 +254,35 @@ function isInternalTransfer(description: string): boolean {
   );
 }
 
-function isSavingOrInvestmentMovement(description: string): boolean {
+function isInstantAccessPotTransfer(
+  description: string,
+  transaction: ClassifiableTransaction,
+): boolean {
+  return (
+    monzoSources.has(transaction.source) &&
+    /\binstant access pot\b/.test(description)
+  );
+}
+
+function isMonzoFlexMovement(
+  description: string,
+  transaction: ClassifiableTransaction,
+): boolean {
+  return (
+    monzoSources.has(transaction.source) &&
+    (normalizeDescription(transaction.raw?.Type ?? "") === "flex" ||
+      normalizeDescription(transaction.raw?.Description ?? "").includes(
+        "flex",
+      ) ||
+      /\bflex\b/.test(description))
+  );
+}
+
+export function isSavingOrInvestmentMovementDescription(
+  description: string,
+): boolean {
   return /\b(pot|savings?|isa|investment|invest|vanguard|trading 212|pension)\b/.test(
-    description,
+    normalizeDescription(description),
   );
 }
 

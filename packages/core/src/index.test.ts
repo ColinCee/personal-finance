@@ -159,6 +159,42 @@ describe("classification rules", () => {
     });
   });
 
+  test("automates Monzo instant access pot money-in as a transfer", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: 5000,
+        description: "Instant Access Pot",
+        kind: "income",
+        source: "monzo",
+      }),
+    ).toMatchObject({
+      kind: "transfer",
+      confidence: "high",
+      reason: "pot_transfer",
+      reviewRequired: false,
+    });
+  });
+
+  test("automates Monzo Flex movements as transfers", () => {
+    expect(
+      classifyTransaction({
+        amountMinorUnits: 40574,
+        description: "Flex payment for travel booking",
+        kind: "income",
+        source: "monzo",
+        raw: {
+          Type: "Flex",
+          Description: "Flex payment for travel booking",
+        },
+      }),
+    ).toMatchObject({
+      kind: "transfer",
+      confidence: "high",
+      reason: "monzo_flex",
+      reviewRequired: false,
+    });
+  });
+
   test("classifies explicit own-account transfers without review", () => {
     expect(
       classifyTransaction({
@@ -255,18 +291,18 @@ describe("classification rules", () => {
     });
   });
 
-  test("classifies zero-value entries as transfers", () => {
+  test("classifies zero-value entries as no-op transfers", () => {
     expect(
       classifyTransaction({
         amountMinorUnits: 0,
         description: "Zero balance correction",
-        kind: "transfer",
+        kind: "income",
         source: "monzo",
       }),
     ).toEqual({
       kind: "transfer",
       confidence: "high",
-      reason: "internal_transfer",
+      reason: "zero_amount",
       reviewRequired: false,
     });
   });

@@ -2,6 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 
 import {
   affectsPersonalSpend,
+  classifyTransaction,
   classifyTransactionWithLocalRules,
   reviewDecisionActionForKind,
   type ReviewTransaction,
@@ -18,6 +19,7 @@ import type { AppDatabase } from "../db/client";
 import {
   economicAllocations,
   ledgerEntries,
+  rawTransactions,
   reviewDecisions,
   reviewItems,
   settlementLinks,
@@ -30,6 +32,7 @@ import {
 
 export type TransactionsRepository = {
   listReviewTransactions: () => ReviewTransaction[];
+  applyAutomatedClassificationRules: () => ApplyAutomatedClassificationRulesResult;
   applyLocalClassificationRules: (
     rules: readonly LocalClassificationRule[],
   ) => ApplyLocalClassificationRulesResult;
@@ -37,6 +40,13 @@ export type TransactionsRepository = {
   appendAllocationDecision: (
     decision: NewAllocationDecision,
   ) => AllocationDecisionResult;
+};
+
+export type ApplyAutomatedClassificationRulesResult = {
+  matchedTransactionCount: number;
+  createdReviewItemCount: number;
+  resolvedReviewItemCount: number;
+  updatedLedgerEntryCount: number;
 };
 
 export type ApplyLocalClassificationRulesResult = {
@@ -98,9 +108,12 @@ type LedgerEntryForLocalRule = {
   currency: "GBP";
   kind: EntryKind;
   source: "fake-amex" | "fake-monzo" | "amex" | "monzo";
+  rawJson: string | null;
   reviewItemId: string | null;
   reviewStatus: "needs_review" | "confirmed" | null;
 };
+
+type LedgerEntryForClassification = LedgerEntryForLocalRule;
 
 export function createTransactionsRepository(
   db: AppDatabase,
@@ -130,6 +143,115 @@ export function createTransactionsRepository(
           reviewReason: entry.reviewReason ?? null,
           affectsPersonalSpend: affectsPersonalSpend(entry),
         })),
+    applyAutomatedClassificationRules: () =>
+      db.transaction((transaction) => {
+        let matchedTransactionCount = 0;
+        let createdReviewItemCount = 0;
+        let resolvedReviewItemCount = 0;
+        let updatedLedgerEntryCount = 0;
+        const candidates = transaction
+          .select({
+            id: ledgerEntries.id,
+            postedOn: ledgerEntries.postedOn,
+            description: ledgerEntries.description,
+            amountMinorUnits: ledgerEntries.amountMinorUnits,
+            currency: ledgerEntries.currency,
+            kind: ledgerEntries.kind,
+            source: ledgerEntries.source,
+            rawJson: rawTransactions.rawJson,
+            reviewItemId: reviewItems.id,
+            reviewStatus: reviewItems.status,
+          })
+          .from(ledgerEntries)
+          .leftJoin(
+            rawTransactions,
+            eq(rawTransactions.id, ledgerEntries.rawTransactionId),
+          )
+          .leftJoin(
+            reviewItems,
+            eq(reviewItems.ledgerEntryId, ledgerEntries.id),
+          )
+          .all()
+          .filter(
+            (entry) =>
+              entry.reviewItemId === null ||
+              entry.reviewStatus === "needs_review",
+          ) as LedgerEntryForClassification[];
+
+        for (const entry of candidates) {
+          const classification = classifyTransaction({
+            ...entry,
+            raw: entry.rawJson ? JSON.parse(entry.rawJson) : undefined,
+          });
+
+          if (classification.reviewRequired) {
+            continue;
+          }
+
+          if (classification.kind === entry.kind && !entry.reviewItemId) {
+            continue;
+          }
+
+          matchedTransactionCount += 1;
+
+          if (classification.kind !== entry.kind) {
+            updatedLedgerEntryCount += 1;
+            transaction
+              .update(ledgerEntries)
+              .set({ kind: classification.kind })
+              .where(eq(ledgerEntries.id, entry.id))
+              .run();
+          }
+
+          const reviewItemId = entry.reviewItemId ?? `review_auto_${entry.id}`;
+
+          if (entry.reviewItemId) {
+            resolvedReviewItemCount += 1;
+            transaction
+              .update(reviewItems)
+              .set({
+                reason: classification.reason,
+                status: "confirmed",
+                resolvedAt: sql`CURRENT_TIMESTAMP`,
+              })
+              .where(eq(reviewItems.id, reviewItemId))
+              .run();
+          } else {
+            createdReviewItemCount += 1;
+            transaction
+              .insert(reviewItems)
+              .values({
+                id: reviewItemId,
+                ledgerEntryId: entry.id,
+                status: "confirmed",
+                reason: classification.reason,
+                resolvedAt: sql`CURRENT_TIMESTAMP`,
+              })
+              .run();
+          }
+
+          transaction
+            .insert(reviewDecisions)
+            .values({
+              id: `review_decision_auto_${reviewItemId}`,
+              reviewItemId,
+              action: reviewDecisionActionForKind(
+                entry.kind,
+                classification.kind,
+              ),
+              decidedKind: classification.kind,
+              note: "Auto-identified by public classifier.",
+            })
+            .run();
+        }
+
+        return {
+          matchedTransactionCount,
+          createdReviewItemCount,
+          resolvedReviewItemCount,
+          updatedLedgerEntryCount,
+        };
+      }),
     applyLocalClassificationRules: (rules) => {
       const activeRuleCount = rules.filter(
         (rule) => rule.enabled !== false,

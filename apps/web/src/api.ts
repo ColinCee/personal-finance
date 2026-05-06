@@ -187,6 +187,8 @@ const allocationDecisionPayloadSchema = z.object({
 
 const localClassificationRulesApplySchema = z.object({
   ruleCount: z.number().int(),
+  automatedMatchedTransactionCount: z.number().int(),
+  privateMatchedTransactionCount: z.number().int(),
   matchedTransactionCount: z.number().int(),
   createdReviewItemCount: z.number().int(),
   resolvedReviewItemCount: z.number().int(),

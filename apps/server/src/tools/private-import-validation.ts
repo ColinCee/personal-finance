@@ -108,9 +108,12 @@ const entryKinds: readonly EntryKind[] = [
 
 const classificationReasons: readonly ClassificationReason[] = [
   "ordinary_spend",
+  "zero_amount",
   "salary_income",
   "credit_card_payment",
   "internal_transfer",
+  "pot_transfer",
+  "monzo_flex",
   "saving_or_investment_movement",
   "shared_repayment",
   "reimbursement",

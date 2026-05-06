@@ -50,7 +50,7 @@ export function createTransactionsRoutes(
   );
 
   routes.post("/local-classification-rules/apply", (context) =>
-    context.json(transactionsService.applyLocalClassificationRules(), 200),
+    context.json(transactionsService.applyClassificationRules(), 200),
   );
 
   routes.post("/review-items/:reviewItemId/decisions", async (context) => {
