@@ -592,6 +592,11 @@ describe("monthly reports", () => {
         moneyInMinorUnits: 300000,
         moneyOutMinorUnits: 18000,
         actualPersonalSpendMinorUnits: 14000,
+        soloPersonalSpendMinorUnits: 10000,
+        sharedSpendTotalMinorUnits: 8000,
+        sharedSpendMyShareMinorUnits: 4000,
+        sharedSpendOtherShareMinorUnits: 4000,
+        partnerSpendMinorUnits: 0,
         personalSpendMinorUnits: 14000,
         businessOrReimbursableMinorUnits: 0,
         sharedSpendMinorUnits: 4000,
@@ -610,6 +615,11 @@ describe("monthly reports", () => {
         moneyInMinorUnits: 4000,
         moneyOutMinorUnits: 18000,
         actualPersonalSpendMinorUnits: 0,
+        soloPersonalSpendMinorUnits: 0,
+        sharedSpendTotalMinorUnits: 0,
+        sharedSpendMyShareMinorUnits: 0,
+        sharedSpendOtherShareMinorUnits: 0,
+        partnerSpendMinorUnits: 0,
         personalSpendMinorUnits: 0,
         businessOrReimbursableMinorUnits: 0,
         sharedSpendMinorUnits: 0,
@@ -630,6 +640,72 @@ describe("monthly reports", () => {
     expect(reports[0]?.allocationByPurpose.friend).toBe(4000);
     expect(reports[0]?.economicEffectTotals.personal_spend).toBe(14000);
     expect(reports[1]?.economicEffectTotals.receivable_settled).toBe(4000);
+  });
+
+  test("counts confirmed spend without allocations as personal spend", () => {
+    const reports = calculateMonthlyReports({
+      entries: [
+        ledgerEntry(
+          "ordinary_groceries",
+          -4200,
+          "spend",
+          "monzo",
+          "2026-05-12",
+        ),
+      ],
+      allocations: [],
+      settlements: [],
+      reviewItems: [],
+    });
+
+    expect(reports).toMatchObject([
+      {
+        month: "2026-05",
+        actualPersonalSpendMinorUnits: 4200,
+        soloPersonalSpendMinorUnits: 4200,
+        sharedSpendTotalMinorUnits: 0,
+        sharedSpendMyShareMinorUnits: 0,
+        sharedSpendOtherShareMinorUnits: 0,
+        partnerSpendMinorUnits: 0,
+        personalSpendMinorUnits: 0,
+        unresolvedImpactMinorUnits: 0,
+        reviewItemCount: 0,
+        openReviewItemCount: 0,
+      },
+    ]);
+    expect(reports[0]?.economicEffectTotals.personal_spend).toBe(4200);
+  });
+
+  test("breaks shared partner spend into my share and partner share", () => {
+    const reports = calculateMonthlyReports({
+      entries: [
+        ledgerEntry("partner_dinner", -12000, "spend", "monzo", "2026-05-12"),
+      ],
+      allocations: [
+        allocation("partner_dinner_me", "partner_dinner", "personal", 6000),
+        allocation(
+          "partner_dinner_partner",
+          "partner_dinner",
+          "partner",
+          6000,
+          "partner",
+        ),
+      ],
+      settlements: [],
+      reviewItems: [],
+    });
+
+    expect(reports).toMatchObject([
+      {
+        month: "2026-05",
+        actualPersonalSpendMinorUnits: 6000,
+        soloPersonalSpendMinorUnits: 0,
+        sharedSpendTotalMinorUnits: 12000,
+        sharedSpendMyShareMinorUnits: 6000,
+        sharedSpendOtherShareMinorUnits: 6000,
+        partnerSpendMinorUnits: 6000,
+      },
+    ]);
   });
 
   test("separates business and excluded allocations from personal spend", () => {

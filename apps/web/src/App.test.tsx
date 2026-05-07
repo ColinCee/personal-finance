@@ -92,11 +92,74 @@ const fakeTransactions = [
 
 const fakeMonthlyReports = [
   {
+    month: "2025-06",
+    cashflowNetMinorUnits: -22000,
+    moneyInMinorUnits: 0,
+    moneyOutMinorUnits: 22000,
+    actualPersonalSpendMinorUnits: 22000,
+    soloPersonalSpendMinorUnits: 18000,
+    sharedSpendTotalMinorUnits: 8000,
+    sharedSpendMyShareMinorUnits: 4000,
+    sharedSpendOtherShareMinorUnits: 4000,
+    partnerSpendMinorUnits: 4000,
+    personalSpendMinorUnits: 22000,
+    businessOrReimbursableMinorUnits: 0,
+    sharedSpendMinorUnits: 4000,
+    sharedAwaitingRepaymentMinorUnits: 0,
+    movedOrSavedMinorUnits: 0,
+    incomeNewMoneyMinorUnits: 0,
+    notPersonalBudgetMinorUnits: 0,
+    creditCardPaymentMinorUnits: 0,
+    refundOrRepaymentMinorUnits: 0,
+    unresolvedImpactMinorUnits: 0,
+    economicEffectTotals: {
+      personal_spend: 22000,
+      shared_spend: 4000,
+      receivable_created: 4000,
+      receivable_settled: 0,
+      refund: 0,
+      transfer: 0,
+      saving: 0,
+      investment: 0,
+      credit_card_payment: 0,
+      income: 0,
+      not_personal_budget: 0,
+      uncertain: 0,
+    },
+    allocationByPurpose: {
+      personal: 22000,
+      partner: 4000,
+      joint: 0,
+      friend: 0,
+      business: 0,
+      reimbursable: 0,
+      excluded: 0,
+    },
+    monthEndOutstandingByPurpose: {
+      personal: 0,
+      partner: 0,
+      joint: 0,
+      friend: 0,
+      business: 0,
+      reimbursable: 0,
+      excluded: 0,
+    },
+    monthEndCreditCardLiabilityMinorUnits: 0,
+    transactionCount: 3,
+    reviewItemCount: 0,
+    openReviewItemCount: 0,
+  },
+  {
     month: "2026-05",
     cashflowNetMinorUnits: -14000,
     moneyInMinorUnits: 4000,
     moneyOutMinorUnits: 18000,
     actualPersonalSpendMinorUnits: 14000,
+    soloPersonalSpendMinorUnits: 10000,
+    sharedSpendTotalMinorUnits: 8000,
+    sharedSpendMyShareMinorUnits: 4000,
+    sharedSpendOtherShareMinorUnits: 4000,
+    partnerSpendMinorUnits: 0,
     personalSpendMinorUnits: 14000,
     businessOrReimbursableMinorUnits: 30000,
     sharedSpendMinorUnits: 4000,
@@ -310,9 +373,61 @@ test("renders the dashboard", async () => {
   expect(
     await screen.findByRole("heading", { name: "Economic overview" }),
   ).toBeInTheDocument();
-  expect(await screen.findByText("4 open")).toBeInTheDocument();
+  expect(await screen.findByText("open reviews")).toBeInTheDocument();
+  expect(
+    await screen.findByText("Jun 2025 to May 2026 imported spend"),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("combobox", { name: "Dashboard date range" }),
+  ).toHaveTextContent("Latest 12 months");
+  expect(await screen.findByText("Known imported spend")).toBeInTheDocument();
   expect(await screen.findByText("Economic view")).toBeInTheDocument();
-  expect(await screen.findByText("1 open / 2 flagged")).toBeInTheDocument();
+  expect(await screen.findByText("Monthly personal spend")).toBeInTheDocument();
+  expect(await screen.findAllByText("Partner / other share")).not.toHaveLength(
+    0,
+  );
+});
+
+test("ignores fake-only dashboard months when real imports exist", async () => {
+  fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    const url = input.toString();
+
+    if (url === "/api/reports/monthly") {
+      return {
+        ok: true,
+        json: async () => fakeMonthlyReports,
+      };
+    }
+
+    if (url === "/api/transactions") {
+      return {
+        ok: true,
+        json: async () => [
+          ...fakeTransactions,
+          {
+            ...fakeTransactions[2],
+            id: "txn_real_1",
+            postedOn: "2025-06-15",
+            source: "monzo",
+          },
+        ],
+      };
+    }
+
+    return {
+      ok: true,
+      json: async () => {
+        throw new Error(`Unexpected request: GET ${url}`);
+      },
+    };
+  });
+
+  render(<App />);
+
+  expect(
+    await screen.findByText("Jun 2025 imported spend"),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("Jun 2025 to May 2026 imported spend")).toBeNull();
 });
 
 test("renders the primary navigation", async () => {

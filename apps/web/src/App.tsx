@@ -13,7 +13,7 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { useState } from "react";
 
 import {
@@ -59,6 +59,16 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
   Table,
@@ -83,8 +93,40 @@ import {
   type MonthlyReport,
   type Transaction,
 } from "./api";
+import type { SpendLens } from "./components/monthly-spend-chart";
 import { cn } from "./lib/utils";
 import "./styles.css";
+
+const MonthlySpendChart = lazy(() =>
+  import("./components/monthly-spend-chart").then((module) => ({
+    default: module.MonthlySpendChart,
+  })),
+);
+
+type ReportRangeSelection = "latest-12" | "all" | `year:${string}`;
+type PeriodSpendSummary = ReturnType<typeof calculatePeriodSpendSummary>;
+
+const spendLensOptions = [
+  {
+    id: "me",
+    label: "Me",
+    shortCopy: "Solo + my shared share",
+  },
+  {
+    id: "shared",
+    label: "Shared",
+    shortCopy: "Whole household/shared cost",
+  },
+  {
+    id: "partner",
+    label: "Partner / other",
+    shortCopy: "Not in my budget",
+  },
+] satisfies ReadonlyArray<{
+  id: SpendLens;
+  label: string;
+  shortCopy: string;
+}>;
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -211,8 +253,15 @@ function Dashboard() {
     transactions.data?.filter(
       (transaction) => transaction.reviewStatus === "needs_review",
     ).length ?? 0;
+  const dashboardTransactions = transactionsForRelevantSources(
+    transactions.data ?? [],
+  );
   const reports = monthlyReports.data ?? [];
-  const latestReport = reports.at(-1);
+  const dashboardReports = reportsForRelevantSources(
+    reports,
+    dashboardTransactions,
+  );
+  const latestReport = dashboardReports.at(-1);
 
   return (
     <div className="dashboard-stack">
@@ -233,41 +282,11 @@ function Dashboard() {
         title="Economic overview"
       />
 
-      <section className="grid">
-        <SummaryCard
-          label="Review inbox"
-          value={`${reviewItemCount} open`}
-          hint="Only uncertain rows need action"
-        />
-        <SummaryCard
-          label="Actual personal spend"
-          value={formatCurrencyFromMinorUnits(
-            latestReport?.actualPersonalSpendMinorUnits ?? 0,
-          )}
-          hint={
-            latestReport ? formatMonth(latestReport.month) : "No reports yet"
-          }
-        />
-        <SummaryCard
-          label="Unresolved impact"
-          value={formatCurrencyFromMinorUnits(
-            latestReport?.unresolvedImpactMinorUnits ?? 0,
-          )}
-          hint="Excluded from confidence until reviewed"
-        />
-        <SummaryCard
-          label="Shared awaiting repayment"
-          value={formatCurrencyFromMinorUnits(
-            latestReport?.sharedAwaitingRepaymentMinorUnits ?? 0,
-          )}
-          hint="Friend, partner, and joint balances"
-        />
-      </section>
-
       <MonthlyReportsPanel
         isError={monthlyReports.isError}
         isLoading={monthlyReports.isLoading}
-        reports={reports}
+        reports={dashboardReports}
+        transactions={dashboardTransactions}
       />
     </div>
   );
@@ -1243,22 +1262,6 @@ type AllocationChoice = {
   }[];
 };
 
-function SummaryCard(props: { label: string; value: string; hint?: string }) {
-  return (
-    <Card className="summary-card" size="sm">
-      <CardHeader>
-        <CardDescription>{props.label}</CardDescription>
-        <CardTitle>{props.value}</CardTitle>
-      </CardHeader>
-      {props.hint ? (
-        <CardContent>
-          <p>{props.hint}</p>
-        </CardContent>
-      ) : null}
-    </Card>
-  );
-}
-
 function useTransactions() {
   return useQuery({
     queryKey: ["transactions"],
@@ -1277,7 +1280,13 @@ function MonthlyReportsPanel(props: {
   reports: MonthlyReport[];
   isLoading: boolean;
   isError: boolean;
+  transactions: Transaction[];
 }) {
+  const [selectedLens, setSelectedLens] = useState<SpendLens>("me");
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [rangeSelection, setRangeSelection] =
+    useState<ReportRangeSelection>("latest-12");
+
   if (props.isLoading) {
     return <p className="panel">Loading monthly reports...</p>;
   }
@@ -1285,6 +1294,41 @@ function MonthlyReportsPanel(props: {
   if (props.isError) {
     return <p className="panel error">Unable to load monthly reports.</p>;
   }
+
+  const availableYears = yearsForReports(props.reports);
+  const selectedRange = isReportRangeAvailable(rangeSelection, props.reports)
+    ? rangeSelection
+    : "latest-12";
+  const periodReports = reportsForRange(props.reports, selectedRange);
+  const latestReport = periodReports.at(-1);
+  const selectedLensDetails = detailsForSpendLens(selectedLens);
+  const selectedLensTotalMinorUnits = sumReportValues(periodReports, (report) =>
+    spendAmountForLens(report, selectedLens),
+  );
+  const selectedLensHighestReport = highestSpendReportForLens(
+    periodReports,
+    selectedLens,
+  );
+  const selectedMonthInRange =
+    selectedMonth &&
+    periodReports.some((report) => report.month === selectedMonth)
+      ? selectedMonth
+      : null;
+  const selectedMonthTransactions = selectedMonthInRange
+    ? props.transactions
+        .filter(
+          (transaction) =>
+            transaction.postedOn.slice(0, 7) === selectedMonthInRange,
+        )
+        .toSorted((left, right) => left.postedOn.localeCompare(right.postedOn))
+    : [];
+  const periodSummary =
+    periodReports.length > 0
+      ? calculatePeriodSpendSummary(
+          formatReportPeriod(periodReports),
+          periodReports,
+        )
+      : null;
 
   return (
     <section className="panel report-panel">
@@ -1300,75 +1344,565 @@ function MonthlyReportsPanel(props: {
         </div>
       </div>
 
-      {props.reports.length === 0 ? (
+      {!latestReport || !periodSummary ? (
         <AppEmpty
           description="Import and review transactions to populate monthly reports."
           title="No reports yet."
         />
       ) : (
-        <Card className="data-table-card" size="sm">
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Month</TableHead>
-                  <TableHead>Actual spend</TableHead>
-                  <TableHead>Awaiting repayment</TableHead>
-                  <TableHead>Moved / saved</TableHead>
-                  <TableHead>Income</TableHead>
-                  <TableHead>Unresolved</TableHead>
-                  <TableHead>Review health</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {props.reports.map((report) => (
-                  <TableRow key={report.month}>
-                    <TableCell>{formatMonth(report.month)}</TableCell>
-                    <TableCell className="amount-cell">
+        <div className="flex flex-col gap-4">
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle>{periodSummary.label} imported spend</CardTitle>
+              <CardDescription>
+                A spend-first view for the selected imported period. This should
+                become authoritative only once personal, joint, partner, and
+                Amex sources are covered.
+              </CardDescription>
+              <CardAction>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Select
+                    onValueChange={(value) =>
+                      setRangeSelection(value as ReportRangeSelection)
+                    }
+                    value={selectedRange}
+                  >
+                    <SelectTrigger
+                      aria-label="Dashboard date range"
+                      className="w-[190px]"
+                      size="sm"
+                    >
+                      <SelectValue placeholder="Date range" />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      <SelectGroup>
+                        <SelectLabel>Relative ranges</SelectLabel>
+                        <SelectItem value="latest-12">
+                          Latest 12 months
+                        </SelectItem>
+                        <SelectItem value="all">All imported months</SelectItem>
+                      </SelectGroup>
+                      {availableYears.length > 0 ? (
+                        <>
+                          <SelectSeparator />
+                          <SelectGroup>
+                            <SelectLabel>Calendar years</SelectLabel>
+                            {availableYears.map((year) => (
+                              <SelectItem key={year} value={`year:${year}`}>
+                                {year}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </>
+                      ) : null}
+                    </SelectContent>
+                  </Select>
+                  <Badge
+                    variant={
+                      periodSummary.openReviewItemCount === 0 &&
+                      periodSummary.unresolvedImpactMinorUnits === 0
+                        ? "secondary"
+                        : "outline"
+                    }
+                  >
+                    {periodSummary.openReviewItemCount === 0
+                      ? "All reviewed"
+                      : `${periodSummary.openReviewItemCount} review open`}
+                  </Badge>
+                </div>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-6">
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
+                <div className="flex flex-col gap-3">
+                  <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    {selectedLensDetails.kicker}
+                  </span>
+                  <strong className="font-mono text-5xl leading-none font-semibold tracking-tight text-foreground tabular-nums sm:text-6xl lg:text-7xl">
+                    {formatCurrencyFromMinorUnits(selectedLensTotalMinorUnits)}
+                  </strong>
+                  <p className="max-w-[58ch] text-muted-foreground">
+                    {selectedLensDetails.description}
+                  </p>
+                </div>
+                <dl className="flex flex-col rounded-2xl border bg-muted/40 p-4 [&_dt]:text-sm [&_dt]:text-muted-foreground">
+                  <div className="flex items-baseline justify-between gap-4 border-b py-3 first:pt-0 last:border-b-0 last:pb-0">
+                    <dt>Average per month</dt>
+                    <dd className="font-mono font-medium text-foreground tabular-nums">
                       {formatCurrencyFromMinorUnits(
-                        report.actualPersonalSpendMinorUnits,
+                        Math.round(
+                          selectedLensTotalMinorUnits /
+                            periodSummary.reportCount,
+                        ),
                       )}
-                    </TableCell>
-                    <TableCell className="amount-cell">
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4 border-b py-3 first:pt-0 last:border-b-0 last:pb-0">
+                    <dt>Imported coverage</dt>
+                    <dd className="font-medium text-foreground">
+                      {periodSummary.reportCount} month
+                      {periodSummary.reportCount === 1 ? "" : "s"} ·{" "}
+                      {periodSummary.transactionCount} rows
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4 border-b py-3 first:pt-0 last:border-b-0 last:pb-0">
+                    <dt>Latest month</dt>
+                    <dd className="font-mono font-medium text-foreground tabular-nums">
                       {formatCurrencyFromMinorUnits(
-                        report.sharedAwaitingRepaymentMinorUnits,
+                        spendAmountForLens(latestReport, selectedLens),
                       )}
-                    </TableCell>
-                    <TableCell className="amount-cell">
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4 border-b py-3 first:pt-0 last:border-b-0 last:pb-0">
+                    <dt>Highest month</dt>
+                    <dd className="font-mono font-medium text-foreground tabular-nums">
                       {formatCurrencyFromMinorUnits(
-                        report.movedOrSavedMinorUnits,
+                        selectedLensHighestReport
+                          ? spendAmountForLens(
+                              selectedLensHighestReport,
+                              selectedLens,
+                            )
+                          : 0,
                       )}
-                    </TableCell>
-                    <TableCell className="amount-cell">
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4 border-b py-3 first:pt-0 last:border-b-0 last:pb-0">
+                    <dt>Shared total</dt>
+                    <dd className="font-mono font-medium text-foreground tabular-nums">
                       {formatCurrencyFromMinorUnits(
-                        report.incomeNewMoneyMinorUnits,
+                        periodSummary.sharedSpendTotalMinorUnits,
                       )}
-                    </TableCell>
-                    <TableCell className="amount-cell">
-                      {formatCurrencyFromMinorUnits(
-                        report.unresolvedImpactMinorUnits,
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {report.openReviewItemCount} open /{" "}
-                      {report.reviewItemCount} flagged
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            {spendLensOptions.map((lens) => (
+              <Button
+                aria-pressed={selectedLens === lens.id}
+                className="h-auto justify-start rounded-2xl p-3 text-left"
+                key={lens.id}
+                onClick={() => setSelectedLens(lens.id)}
+                type="button"
+                variant={selectedLens === lens.id ? "default" : "outline"}
+              >
+                <span className="flex flex-col items-start gap-1">
+                  <span className="font-medium">{lens.label}</span>
+                  <span className="font-mono text-lg leading-none font-semibold tabular-nums">
+                    {formatCurrencyFromMinorUnits(
+                      spendAmountForLensSummary(periodSummary, lens.id),
+                    )}
+                  </span>
+                  <span className="text-xs opacity-80">{lens.shortCopy}</span>
+                </span>
+              </Button>
+            ))}
+          </div>
+
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle>Monthly personal spend</CardTitle>
+              <CardDescription>
+                Monthly imported spend split between solo personal spend and
+                your share of joint/shared costs.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Suspense
+                fallback={
+                  <p className="text-sm text-muted-foreground">
+                    Loading spend chart...
+                  </p>
+                }
+              >
+                <MonthlySpendChart
+                  lens={selectedLens}
+                  onMonthSelect={setSelectedMonth}
+                  reports={periodReports}
+                />
+              </Suspense>
+            </CardContent>
+          </Card>
+
+          {selectedMonthInRange ? (
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle>
+                  {formatMonth(selectedMonthInRange)} ledger rows
+                </CardTitle>
+                <CardDescription>
+                  Rows imported for the selected chart month. Use this to debug
+                  why a month looks high, low, or incomplete.
+                </CardDescription>
+                {selectedMonthTransactions.some(
+                  (transaction) => transaction.reviewStatus === "needs_review",
+                ) ? (
+                  <CardAction>
+                    <Button asChild size="sm">
+                      <Link to="/review">Review open rows</Link>
+                    </Button>
+                  </CardAction>
+                ) : null}
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Transaction</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Kind</TableHead>
+                      <TableHead>Review</TableHead>
+                      <TableHead>Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedMonthTransactions.map((transaction) => (
+                      <TableRow key={transaction.id}>
+                        <TableCell>{transaction.postedOn}</TableCell>
+                        <TableCell>{transaction.description}</TableCell>
+                        <TableCell>
+                          {formatTransactionSource(transaction.source)}
+                        </TableCell>
+                        <TableCell>
+                          {formatEntryKind(transaction.kind)}
+                        </TableCell>
+                        <TableCell>
+                          {transaction.reviewStatus === "needs_review" ? (
+                            <Badge variant="outline">Needs review</Badge>
+                          ) : (
+                            <Badge variant="secondary">Reviewed</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono font-medium tabular-nums">
+                          {formatCurrencyFromMinorUnits(
+                            transaction.amountMinorUnits,
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {[...periodReports].reverse().map((report) => (
+              <Card key={report.month} size="sm">
+                <CardHeader>
+                  <CardTitle>{formatMonth(report.month)}</CardTitle>
+                  <CardDescription>
+                    {report.transactionCount} ledger row
+                    {report.transactionCount === 1 ? "" : "s"}
+                  </CardDescription>
+                  {report.openReviewItemCount > 0 ||
+                  report.unresolvedImpactMinorUnits > 0 ? (
+                    <CardAction>
+                      <Badge variant="outline">
+                        {report.openReviewItemCount > 0
+                          ? `${report.openReviewItemCount} review open`
+                          : `${formatCurrencyFromMinorUnits(
+                              report.unresolvedImpactMinorUnits,
+                            )} unresolved`}
+                      </Badge>
+                    </CardAction>
+                  ) : null}
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col gap-3">
+                    <dl className="flex flex-col gap-2 [&_dt]:text-sm [&_dt]:text-muted-foreground">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <dt>My actual spend</dt>
+                        <dd className="font-mono text-lg font-semibold tracking-tight text-foreground tabular-nums">
+                          {formatCurrencyFromMinorUnits(
+                            report.actualPersonalSpendMinorUnits,
+                          )}
+                        </dd>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-4">
+                        <dt>Solo personal</dt>
+                        <dd className="font-mono font-medium text-foreground tabular-nums">
+                          {formatCurrencyFromMinorUnits(
+                            report.soloPersonalSpendMinorUnits,
+                          )}
+                        </dd>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-4">
+                        <dt>My shared share</dt>
+                        <dd className="font-mono font-medium text-foreground tabular-nums">
+                          {formatCurrencyFromMinorUnits(
+                            report.sharedSpendMyShareMinorUnits,
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                    <Separator />
+                    <dl className="flex flex-col gap-2 [&_dt]:text-sm [&_dt]:text-muted-foreground">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <dt>Shared total</dt>
+                        <dd className="font-mono font-medium text-foreground tabular-nums">
+                          {formatCurrencyFromMinorUnits(
+                            report.sharedSpendTotalMinorUnits,
+                          )}
+                        </dd>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-4">
+                        <dt>Partner / other share</dt>
+                        <dd className="font-mono font-medium text-foreground tabular-nums">
+                          {formatCurrencyFromMinorUnits(
+                            report.sharedSpendOtherShareMinorUnits,
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
       )}
     </section>
   );
 }
 
+function transactionsForRelevantSources(
+  transactions: readonly Transaction[],
+): Transaction[] {
+  const hasRealImports = transactions.some(
+    (transaction) => !isFakeImportSource(transaction.source),
+  );
+
+  if (!hasRealImports) {
+    return [...transactions];
+  }
+
+  return transactions.filter(
+    (transaction) => !isFakeImportSource(transaction.source),
+  );
+}
+
+function reportsForRelevantSources(
+  reports: readonly MonthlyReport[],
+  transactions: readonly Transaction[],
+): MonthlyReport[] {
+  const hasRealImports = transactions.some(
+    (transaction) => !isFakeImportSource(transaction.source),
+  );
+
+  if (!hasRealImports) {
+    return [...reports];
+  }
+
+  const includedMonths = new Set(
+    transactions.map((transaction) => transaction.postedOn.slice(0, 7)),
+  );
+  return reports.filter((report) => includedMonths.has(report.month));
+}
+
+function isFakeImportSource(source: string): boolean {
+  return source.startsWith("fake-");
+}
+
+function detailsForSpendLens(lens: SpendLens): {
+  kicker: string;
+  description: string;
+} {
+  switch (lens) {
+    case "shared":
+      return {
+        kicker: "Shared spend in this range",
+        description:
+          "The full shared or household cost from imported data, before splitting between you and a partner or other payer.",
+      };
+    case "partner":
+      return {
+        kicker: "Partner / other share",
+        description:
+          "Spend allocated away from your personal budget, including the other side of shared costs and any partner-only rows.",
+      };
+    case "me":
+      return {
+        kicker: "Known imported spend",
+        description:
+          "Solo personal spend plus your share of reviewed shared costs. This is the number to compare month to month once imports are complete.",
+      };
+  }
+}
+
+function spendAmountForLens(report: MonthlyReport, lens: SpendLens): number {
+  switch (lens) {
+    case "shared":
+      return report.sharedSpendTotalMinorUnits;
+    case "partner":
+      return report.sharedSpendOtherShareMinorUnits;
+    case "me":
+      return report.actualPersonalSpendMinorUnits;
+  }
+}
+
+function spendAmountForLensSummary(
+  summary: PeriodSpendSummary,
+  lens: SpendLens,
+): number {
+  switch (lens) {
+    case "shared":
+      return summary.sharedSpendTotalMinorUnits;
+    case "partner":
+      return summary.sharedSpendOtherShareMinorUnits;
+    case "me":
+      return summary.personalSpendMinorUnits;
+  }
+}
+
+function highestSpendReportForLens(
+  reports: readonly MonthlyReport[],
+  lens: SpendLens,
+): MonthlyReport | undefined {
+  return reports.reduce<MonthlyReport | undefined>((highestReport, report) => {
+    if (!highestReport) {
+      return report;
+    }
+
+    return spendAmountForLens(report, lens) >
+      spendAmountForLens(highestReport, lens)
+      ? report
+      : highestReport;
+  }, undefined);
+}
+
+function reportsForRange(
+  reports: readonly MonthlyReport[],
+  selection: ReportRangeSelection,
+): MonthlyReport[] {
+  if (selection === "all") {
+    return [...reports];
+  }
+
+  if (selection === "latest-12") {
+    return reports.slice(-12);
+  }
+
+  const year = selection.slice("year:".length);
+  return reports.filter((report) => report.month.startsWith(year));
+}
+
+function isReportRangeAvailable(
+  selection: ReportRangeSelection,
+  reports: readonly MonthlyReport[],
+): boolean {
+  if (selection === "all" || selection === "latest-12") {
+    return reports.length > 0;
+  }
+
+  const year = selection.slice("year:".length);
+  return reports.some((report) => report.month.startsWith(year));
+}
+
+function yearsForReports(reports: readonly MonthlyReport[]): string[] {
+  return Array.from(
+    new Set(reports.map((report) => report.month.slice(0, 4))),
+  ).sort((left, right) => right.localeCompare(left));
+}
+
+function formatReportPeriod(reports: readonly MonthlyReport[]): string {
+  const firstReport = reports[0];
+  const lastReport = reports.at(-1);
+
+  if (!firstReport || !lastReport) {
+    return "Imported";
+  }
+
+  if (firstReport.month === lastReport.month) {
+    return formatMonth(firstReport.month);
+  }
+
+  return `${formatMonth(firstReport.month)} to ${formatMonth(lastReport.month)}`;
+}
+
+function calculatePeriodSpendSummary(
+  label: string,
+  reports: readonly MonthlyReport[],
+) {
+  const personalSpendMinorUnits = sumReportValues(
+    reports,
+    (report) => report.actualPersonalSpendMinorUnits,
+  );
+  const highestMonth = reports.reduce((highestReport, report) =>
+    report.actualPersonalSpendMinorUnits >
+    highestReport.actualPersonalSpendMinorUnits
+      ? report
+      : highestReport,
+  );
+
+  return {
+    label,
+    personalSpendMinorUnits,
+    soloPersonalSpendMinorUnits: sumReportValues(
+      reports,
+      (report) => report.soloPersonalSpendMinorUnits,
+    ),
+    sharedSpendTotalMinorUnits: sumReportValues(
+      reports,
+      (report) => report.sharedSpendTotalMinorUnits,
+    ),
+    sharedSpendMyShareMinorUnits: sumReportValues(
+      reports,
+      (report) => report.sharedSpendMyShareMinorUnits,
+    ),
+    sharedSpendOtherShareMinorUnits: sumReportValues(
+      reports,
+      (report) => report.sharedSpendOtherShareMinorUnits,
+    ),
+    partnerSpendMinorUnits: sumReportValues(
+      reports,
+      (report) => report.partnerSpendMinorUnits,
+    ),
+    reportCount: reports.length,
+    transactionCount: sumReportValues(
+      reports,
+      (report) => report.transactionCount,
+    ),
+    averageMonthlySpendMinorUnits: Math.round(
+      personalSpendMinorUnits / reports.length,
+    ),
+    unresolvedImpactMinorUnits: sumReportValues(
+      reports,
+      (report) => report.unresolvedImpactMinorUnits,
+    ),
+    openReviewItemCount: sumReportValues(
+      reports,
+      (report) => report.openReviewItemCount,
+    ),
+    highestMonth,
+    maxMonthlySpendMinorUnits: highestMonth.actualPersonalSpendMinorUnits,
+  };
+}
+
+function sumReportValues(
+  reports: readonly MonthlyReport[],
+  selector: (report: MonthlyReport) => number,
+): number {
+  return reports.reduce((total, report) => total + selector(report), 0);
+}
+
 function formatCurrencyFromMinorUnits(amountMinorUnits: number): string {
+  return formatCurrencyFromMajorUnits(minorUnitsToMajorUnits(amountMinorUnits));
+}
+
+function formatCurrencyFromMajorUnits(amountMajorUnits: number): string {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: "GBP",
-  }).format(amountMinorUnits / 100);
+  }).format(amountMajorUnits);
+}
+
+function minorUnitsToMajorUnits(amountMinorUnits: number): number {
+  return amountMinorUnits / 100;
 }
 
 function formatMonth(month: string): string {

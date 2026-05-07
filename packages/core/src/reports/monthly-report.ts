@@ -24,6 +24,11 @@ export type MonthlyReport = {
   moneyInMinorUnits: MinorUnitAmount;
   moneyOutMinorUnits: MinorUnitAmount;
   actualPersonalSpendMinorUnits: MinorUnitAmount;
+  soloPersonalSpendMinorUnits: MinorUnitAmount;
+  sharedSpendTotalMinorUnits: MinorUnitAmount;
+  sharedSpendMyShareMinorUnits: MinorUnitAmount;
+  sharedSpendOtherShareMinorUnits: MinorUnitAmount;
+  partnerSpendMinorUnits: MinorUnitAmount;
   personalSpendMinorUnits: MinorUnitAmount;
   businessOrReimbursableMinorUnits: MinorUnitAmount;
   sharedSpendMinorUnits: MinorUnitAmount;
@@ -88,6 +93,8 @@ export function calculateMonthlyReports(input: {
         reviewItems: monthlyReviewItems,
       }),
     );
+    const sharedSpendBreakdown =
+      calculateSharedSpendBreakdown(monthlyAllocations);
     const monthEndEntryIds = new Set(
       input.entries
         .filter((entry) => monthFromDate(entry.postedOn) <= month)
@@ -119,6 +126,19 @@ export function calculateMonthlyReports(input: {
         "personal",
       ),
       actualPersonalSpendMinorUnits: monthlyEffectTotals.personal_spend,
+      soloPersonalSpendMinorUnits: Math.max(
+        0,
+        monthlyEffectTotals.personal_spend -
+          sharedSpendBreakdown.myShareMinorUnits,
+      ),
+      sharedSpendTotalMinorUnits: sharedSpendBreakdown.totalMinorUnits,
+      sharedSpendMyShareMinorUnits: sharedSpendBreakdown.myShareMinorUnits,
+      sharedSpendOtherShareMinorUnits:
+        sharedSpendBreakdown.otherShareMinorUnits,
+      partnerSpendMinorUnits: sumAllocationsByPurpose(
+        monthlyAllocations,
+        "partner",
+      ),
       businessOrReimbursableMinorUnits:
         sumAllocationsByPurpose(monthlyAllocations, "business") +
         sumAllocationsByPurpose(monthlyAllocations, "reimbursable"),
@@ -181,6 +201,45 @@ function allocationTotalsByPurpose(
       sumAllocationsByPurpose(allocations, purpose),
     ]),
   ) as Record<AllocationPurpose, MinorUnitAmount>;
+}
+
+function calculateSharedSpendBreakdown(
+  allocations: readonly EconomicAllocation[],
+): {
+  totalMinorUnits: MinorUnitAmount;
+  myShareMinorUnits: MinorUnitAmount;
+  otherShareMinorUnits: MinorUnitAmount;
+} {
+  const sharedEntryIds = new Set(
+    allocations
+      .filter((allocation) => sharedPurposes.has(allocation.purpose))
+      .map((allocation) => allocation.ledgerEntryId),
+  );
+  let totalMinorUnits = 0;
+  let myShareMinorUnits = 0;
+  let otherShareMinorUnits = 0;
+
+  for (const allocation of allocations) {
+    if (!sharedEntryIds.has(allocation.ledgerEntryId)) {
+      continue;
+    }
+
+    if (allocation.purpose === "personal") {
+      totalMinorUnits += allocation.amountMinorUnits;
+      myShareMinorUnits += allocation.amountMinorUnits;
+    }
+
+    if (sharedPurposes.has(allocation.purpose)) {
+      totalMinorUnits += allocation.amountMinorUnits;
+      otherShareMinorUnits += allocation.amountMinorUnits;
+    }
+  }
+
+  return {
+    totalMinorUnits,
+    myShareMinorUnits,
+    otherShareMinorUnits,
+  };
 }
 
 function calculateMonthEndOutstandingByPurpose(

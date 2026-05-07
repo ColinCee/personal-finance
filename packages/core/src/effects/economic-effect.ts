@@ -78,6 +78,9 @@ export function deriveEconomicEffects(input: {
   const settlementEntryIds = new Set(
     input.settlements.map((settlement) => settlement.settlementLedgerEntryId),
   );
+  const allocatedEntryIds = new Set(
+    input.allocations.map((allocation) => allocation.ledgerEntryId),
+  );
   const effects: EconomicEffect[] = [];
 
   for (const allocation of input.allocations) {
@@ -89,7 +92,7 @@ export function deriveEconomicEffects(input: {
   }
 
   for (const entry of input.entries) {
-    if (!openReviewEntryIds.has(entry.id)) {
+    if (!openReviewEntryIds.has(entry.id) && !allocatedEntryIds.has(entry.id)) {
       effects.push(
         ...effectsForUnallocatedEntry(entry, settlementEntryIds.has(entry.id)),
       );
@@ -204,6 +207,19 @@ function effectsForUnallocatedEntry(
         id: `effect_${entry.id}_transfer`,
         ledgerEntryId: entry.id,
         type: "transfer",
+        amountMinorUnits: Math.abs(entry.amountMinorUnits),
+        counterparty: null,
+        sourceId: null,
+      },
+    ];
+  }
+
+  if (entry.kind === "spend" && entry.amountMinorUnits < 0) {
+    return [
+      {
+        id: `effect_${entry.id}_personal_spend`,
+        ledgerEntryId: entry.id,
+        type: "personal_spend",
         amountMinorUnits: Math.abs(entry.amountMinorUnits),
         counterparty: null,
         sourceId: null,

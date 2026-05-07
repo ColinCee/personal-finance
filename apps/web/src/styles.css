@@ -341,17 +341,6 @@ a {
   padding: 24px 26px;
 }
 
-.summary-card [data-slot="card-title"] {
-  font-size: 1.75rem;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.04em;
-}
-
-.summary-card [data-slot="card-content"] p {
-  color: var(--muted-foreground);
-  margin: 0;
-}
-
 .data-table-card {
   margin-top: 20px;
 }
@@ -371,6 +360,13 @@ a {
 
 .report-panel {
   border-radius: 32px;
+}
+
+.economic-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
 }
 
 .review-panel {
@@ -589,13 +585,6 @@ th {
 .transaction-copy span {
   color: var(--muted-foreground);
   font-size: 0.82rem;
-}
-
-.amount-cell {
-  color: var(--foreground);
-  font-variant-numeric: tabular-nums;
-  font-weight: 760;
-  white-space: nowrap;
 }
 
 .review-card-list {
