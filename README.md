@@ -1,12 +1,26 @@
 # Personal Finance
 
-Data-free local/self-hosted personal finance app.
+A local, self-hosted app for reviewing bank transactions and producing honest monthly budgets; your data never leaves your machine.
+
+[![Verify](https://github.com/ColinCee/personal-finance/actions/workflows/verify.yml/badge.svg?branch=main&event=push)](https://github.com/ColinCee/personal-finance/actions/workflows/verify.yml?query=branch%3Amain)
+
+![Dashboard showing the fake-data demo](docs/screenshot.png)
 
 The goal is to model the money movements that bank overviews usually get wrong:
 credit-card repayments, reimbursements, joint-account splits, salary allocation, and budget
-reporting. Real financial exports belong in `storage/`, which is ignored by git.
+reporting. Real financial exports belong in `storage/`, which is ignored by git. The screenshot
+above uses the committed fake fixtures.
 
-## Product shape
+## Run locally
+
+```bash
+mise install      # Node and pnpm versions
+pnpm install
+pnpm demo:seed    # import the fake fixture data
+pnpm dev          # web app on http://127.0.0.1:5173
+```
+
+## What it does
 
 This is an interactive review workspace, not a spreadsheet replacement or SaaS product.
 
@@ -26,7 +40,7 @@ Out of scope for v1:
 Those areas are related enough to live in this repo later, but they should not shape the first
 ledger and budgeting model.
 
-## Tech stack
+## Stack
 
 | Choice                    | Why                                                                                   |
 | ------------------------- | ------------------------------------------------------------------------------------- |
